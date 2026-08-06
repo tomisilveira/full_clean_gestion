@@ -5,8 +5,10 @@ export type Theme = 'light' | 'dark';
 function getInitialTheme(): Theme {
   const saved = localStorage.getItem('full_clean_theme');
   if (saved === 'light' || saved === 'dark') return saved;
-  // Sin preferencia guardada: respeta el tema del sistema operativo/navegador
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  // Sin preferencia guardada todavía: siempre arranca en claro (no se detecta el
+  // tema del sistema operativo). El botón de la Navbar sigue cambiándolo y esa
+  // elección se recuerda a partir de ahí.
+  return 'light';
 }
 
 function applyTheme(theme: Theme) {
