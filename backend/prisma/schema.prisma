@@ -1,0 +1,368 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Datos de la empresa (a nivel global, no por sucursal)
+model CompanyConfig {
+  id           Int      @id @default(1)
+  businessName String   @default("Artículos de Limpieza Full Clean")
+  cuit         String   @default("20-40000000-9")
+  ivaCondition String   @default("Responsable Inscripto")
+  address      String   @default("Av. Principal 1234, Buenos Aires")
+  phone        String   @default("011 4444-5555")
+  email        String   @default("contacto@fullclean.com.ar")
+  logoUrl      String?
+  arcaHomo     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Sucursal: entidad central de la que cuelgan stock, caja y ventas
+model Sucursal {
+  id               Int      @id @default(autoincrement())
+  nombre           String   @unique
+  direccion        String?
+  telefono         String?
+  ptoVtaArca       Int      @default(1) // Punto de venta habilitado en ARCA para esta sucursal
+  ticketWidth      Int      @default(80) // 58 o 80 mm
+  printerInterface String   @default("NONE") // NONE, USB, NETWORK
+  printerAddress   String   @default("")
+  activa           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  usuarios              UserSucursal[]
+  stocks                ProductStock[]
+  movimientosOrigen     StockMovement[] @relation("SucursalOrigen")
+  movimientosDestino    StockMovement[] @relation("SucursalDestino")
+  cashSessions          CashSession[]
+  sales                 Sale[]
+  purchases             Purchase[]
+  budgets               Budget[]
+}
+
+model User {
+  id           Int             @id @default(autoincrement())
+  username     String          @unique
+  passwordHash String
+  name         String
+  role         String          @default("VENDEDOR") // ADMIN, VENDEDOR, SOLO_CONSULTA
+  active       Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  sucursales     UserSucursal[]
+  stockMovements StockMovement[]
+  purchases      Purchase[]
+  cashMovements  CashMovement[]
+  sales          Sale[]
+  openedSessions CashSession[]  @relation("OpenedBy")
+  closedSessions CashSession[]  @relation("ClosedBy")
+}
+
+// Tabla puente: un usuario puede estar asociado a una o más sucursales.
+// ADMIN ve todas las sucursales (no depende de esta tabla), VENDEDOR/SOLO_CONSULTA quedan limitados a las asignadas.
+model UserSucursal {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, sucursalId])
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+}
+
+// Catálogo global de productos. El stock real vive en ProductStock (por sucursal).
+model Product {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique
+  name           String
+  description    String?
+  categoryId     Int?
+  category       Category? @relation(fields: [categoryId], references: [id])
+  unit           String    @default("UN") // UN, LTS, KG, PACK
+  costPrice      Float     @default(0)
+  profitMargin   Float     @default(30)
+  salePrice      Float     @default(0)
+  wholesalePrice Float     @default(0)
+  supplierId     Int?
+  supplier       Supplier? @relation(fields: [supplierId], references: [id])
+  active         Boolean   @default(true)
+  isVariant      Boolean   @default(false)
+  parentId       Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  stocks         ProductStock[]
+  stockMovements StockMovement[]
+  saleItems      SaleItem[]
+  purchaseItems  PurchaseItem[]
+  budgetItems    BudgetItem[]
+}
+
+// Stock de un producto en una sucursal determinada.
+model ProductStock {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sucursalId   Int
+  sucursal     Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  currentStock Float    @default(0)
+  minStock     Float    @default(5)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([productId, sucursalId])
+}
+
+model StockMovement {
+  id                  Int       @id @default(autoincrement())
+  productId           Int
+  product             Product   @relation(fields: [productId], references: [id])
+  sucursalId          Int // sucursal donde impacta el movimiento (origen, en transferencias)
+  sucursal            Sucursal  @relation("SucursalOrigen", fields: [sucursalId], references: [id])
+  sucursalDestinoId   Int? // solo para TRANSFER_OUT/TRANSFER_IN
+  sucursalDestino     Sucursal? @relation("SucursalDestino", fields: [sucursalDestinoId], references: [id])
+  movementType        String // PURCHASE, SALE, SALE_CANCEL, MANUAL_IN, MANUAL_OUT, TRANSFER_OUT, TRANSFER_IN
+  quantity             Float
+  previousStock        Float
+  newStock             Float
+  reason               String?
+  userId               Int
+  user                 User      @relation(fields: [userId], references: [id])
+  createdAt            DateTime  @default(now())
+}
+
+model Supplier {
+  id           Int      @id @default(autoincrement())
+  name         String
+  cuit         String?  @unique
+  contact      String?
+  phone        String?
+  email        String?
+  address      String?
+  ivaCondition String   @default("Responsable Inscripto")
+  bankDetails  String?
+  balance      Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  products         Product[]
+  purchases        Purchase[]
+  accountMovements SupplierAccountMovement[]
+}
+
+// Compra a proveedor: impacta el stock de la sucursal que recibe la mercadería.
+model Purchase {
+  id            Int            @id @default(autoincrement())
+  supplierId    Int
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  sucursalId    Int
+  sucursal      Sucursal       @relation(fields: [sucursalId], references: [id])
+  invoiceNumber String?
+  total         Float
+  status        String         @default("COMPLETED")
+  userId        Int
+  user          User           @relation(fields: [userId], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  items         PurchaseItem[]
+}
+
+model PurchaseItem {
+  id         Int      @id @default(autoincrement())
+  purchaseId Int
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Float
+  costPrice  Float
+  subtotal   Float
+}
+
+model SupplierAccountMovement {
+  id           Int      @id @default(autoincrement())
+  supplierId   Int
+  supplier     Supplier @relation(fields: [supplierId], references: [id])
+  type         String   // PURCHASE_DEBT, PAYMENT
+  amount       Float
+  balanceAfter Float
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+// Clientes y sus cuentas corrientes son globales a la empresa (no por sucursal).
+model Customer {
+  id           Int      @id @default(autoincrement())
+  name         String
+  cuitDni      String?
+  ivaCondition String   @default("Consumidor Final")
+  phone        String?
+  email        String?
+  address      String?
+  priceList    String   @default("RETAIL") // RETAIL, WHOLESALE
+  creditLimit  Float    @default(0)
+  balance      Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales            Sale[]
+  budgets          Budget[]
+  accountMovements CustomerAccountMovement[]
+}
+
+model CustomerAccountMovement {
+  id            Int      @id @default(autoincrement())
+  customerId    Int
+  customer      Customer @relation(fields: [customerId], references: [id])
+  saleId        Int?
+  type          String   // CHARGE_DEBT, PAYMENT
+  amount        Float
+  balanceAfter  Float
+  paymentMethod String?
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+model Budget {
+  id           Int          @id @default(autoincrement())
+  budgetNumber String       @unique
+  customerId   Int?
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  customerName String
+  sucursalId   Int?
+  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id])
+  total        Float
+  status       String       @default("DRAFT") // DRAFT, APPROVED, CONVERTED, EXPIRED
+  validUntil   DateTime
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  items        BudgetItem[]
+}
+
+model BudgetItem {
+  id          Int      @id @default(autoincrement())
+  budgetId    Int
+  budget      Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id])
+  productCode String
+  productName String
+  quantity    Float
+  unitPrice   Float
+  subtotal    Float
+}
+
+// Caja: cada sucursal abre y cierra la suya. Solo puede haber una sesión OPEN por sucursal.
+model CashSession {
+  id             Int            @id @default(autoincrement())
+  sucursalId     Int
+  sucursal       Sucursal       @relation(fields: [sucursalId], references: [id])
+  openedByUserId Int
+  openedByUser   User           @relation("OpenedBy", fields: [openedByUserId], references: [id])
+  closedByUserId Int?
+  closedByUser   User?          @relation("ClosedBy", fields: [closedByUserId], references: [id])
+  openedAt       DateTime       @default(now())
+  closedAt       DateTime?
+  initialAmount  Float          @default(0)
+  expectedAmount Float?
+  actualAmount   Float?
+  difference     Float?
+  status         String         @default("OPEN") // OPEN, CLOSED
+  notes          String?
+  movements      CashMovement[]
+  sales          Sale[]
+}
+
+model CashMovement {
+  id            Int         @id @default(autoincrement())
+  sessionId     Int
+  session       CashSession @relation(fields: [sessionId], references: [id])
+  type          String      // SALE, MANUAL_IN, EXPENSE, SUPPLIER_PAYMENT, WITHDRAWAL, CUSTOMER_PAYMENT
+  paymentMethod String      // CASH, DEBIT, CREDIT, TRANSFER, MERCADO_PAGO, CURRENT_ACCOUNT
+  amount        Float
+  notes         String?
+  userId        Int
+  user          User        @relation(fields: [userId], references: [id])
+  createdAt     DateTime    @default(now())
+}
+
+model Sale {
+  id         Int         @id @default(autoincrement())
+  saleNumber String      @unique
+  sucursalId Int
+  sucursal   Sucursal    @relation(fields: [sucursalId], references: [id])
+  sessionId  Int
+  session    CashSession @relation(fields: [sessionId], references: [id])
+  customerId Int?
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  saleType   String      @default("RETAIL") // RETAIL, WHOLESALE
+  subtotal   Float
+  discount   Float       @default(0)
+  total      Float
+  status     String      @default("COMPLETED") // COMPLETED, CANCELLED
+  userId     Int
+  user       User        @relation(fields: [userId], references: [id])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  items       SaleItem[]
+  payments    Payment[]
+  invoiceARCA InvoiceARCA?
+}
+
+model SaleItem {
+  id          Int     @id @default(autoincrement())
+  saleId      Int
+  sale        Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId   Int
+  product     Product @relation(fields: [productId], references: [id])
+  productCode String
+  productName String
+  quantity    Float
+  unitPrice   Float
+  subtotal    Float
+}
+
+model Payment {
+  id            Int    @id @default(autoincrement())
+  saleId        Int
+  sale          Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod String // CASH, DEBIT, CREDIT, TRANSFER, MERCADO_PAGO, CURRENT_ACCOUNT
+  amount        Float
+  reference     String?
+}
+
+// El punto de venta (ptoVta) se toma de la Sucursal de la venta al momento de emitir.
+model InvoiceARCA {
+  id           Int      @id @default(autoincrement())
+  saleId       Int      @unique
+  sale         Sale     @relation(fields: [saleId], references: [id])
+  cbteTipo     Int      // 1: Factura A, 6: Factura B, 11: Factura C, 3: NC A, 8: NC B, 13: NC C
+  ptoVta       Int
+  cbteDesde    BigInt
+  cbteHasta    BigInt
+  cbteFch      String
+  impTotal     Float
+  impNeto      Float
+  impIVA       Float
+  cae          String
+  caeVto       String
+  afipQrUrl    String?
+  result       String   // A: Aprobado, R: Rechazado
+  errorMessage String?
+  createdAt    DateTime @default(now())
+}

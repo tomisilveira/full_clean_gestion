@@ -1,0 +1,40 @@
+# Node
+node_modules/
+dist/
+build/
+
+# Env
+.env
+.env.local
+.env.production
+
+# SQLite DB legado (el sistema ahora usa PostgreSQL, se deja por si queda algún archivo local viejo)
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+backend/prisma/dev.db-shm
+backend/prisma/dev.db-wal
+
+# Certificados ARCA (nunca versionar keys privadas)
+backend/certs/*.key
+backend/certs/*.crt
+backend/certs/*.pem
+
+# Logs
+*.log
+logs/
+backups/*.sql
+backups/*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+.claude/settings.local.json
+
+# Vite cache
+.vite/
+frontend/.vite/
+frontend/dist/

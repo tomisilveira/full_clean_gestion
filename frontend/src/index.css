@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Tema claro */
+    --color-app: 248 250 252;       /* slate-50 */
+    --color-surface: 255 255 255;   /* white */
+    --color-surface2: 241 245 249;  /* slate-100 */
+    --color-surface3: 226 232 240;  /* slate-200 */
+    --color-heading: 15 23 42;      /* slate-900 */
+    --color-body: 51 65 85;         /* slate-700 */
+    --color-secondary: 100 116 139; /* slate-500 */
+    --color-muted: 148 163 184;     /* slate-400 */
+    --color-faint: 203 213 225;     /* slate-300 */
+    --color-accent-text: 15 118 110; /* teal-700: legible sobre fondos tenues claros (bg-teal-600/20) */
+  }
+
+  .dark {
+    /* Tema oscuro (paleta original de la app) */
+    --color-app: 2 6 23;            /* slate-950 */
+    --color-surface: 15 23 42;      /* slate-900 */
+    --color-surface2: 30 41 59;     /* slate-800 */
+    --color-surface3: 51 65 85;     /* slate-700 */
+    --color-heading: 241 245 249;   /* slate-100 */
+    --color-body: 203 213 225;      /* slate-300 */
+    --color-secondary: 148 163 184; /* slate-400 */
+    --color-muted: 100 116 139;     /* slate-500 */
+    --color-faint: 71 85 105;       /* slate-600 */
+    --color-accent-text: 94 234 212; /* teal-300: legible sobre fondos tenues oscuros (bg-teal-600/20) */
+  }
+
+  body {
+    @apply bg-app text-heading selection:bg-teal-500 selection:text-white transition-colors duration-150;
+  }
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--color-surface2));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-surface3));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-muted));
+}
