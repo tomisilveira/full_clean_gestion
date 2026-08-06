@@ -3,6 +3,11 @@ node_modules/
 dist/
 build/
 
+# Lockfile: se generó en Windows y algunos paquetes (rollup, usado por Vite) tienen
+# binarios nativos distintos por SO — un lockfile de Windows rompe el install en Linux
+# (bug conocido: npm/cli#4828). Cada entorno resuelve el suyo con "npm install".
+package-lock.json
+
 # Env
 .env
 .env.local
