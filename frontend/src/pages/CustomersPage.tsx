@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { Modal } from '../components/Modal';
 import { toastSuccess } from '../store/useToastStore';
-import { Users, Plus, DollarSign, History, Search } from 'lucide-react';
+import { Users, Plus, DollarSign, History, Search, ShoppingBag, Wallet } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyTab, setHistoryTab] = useState<'movements' | 'sales'>('movements');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
   // Form states
@@ -205,9 +206,10 @@ export const CustomersPage: React.FC = () => {
                         <button
                           onClick={() => {
                             setSelectedCustomer(c);
+                            setHistoryTab('movements');
                             setIsHistoryModalOpen(true);
                           }}
-                          title="Ver Historial de Cta Cte"
+                          title="Ver Estado de Cuenta y Compras"
                           className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-body transition"
                         >
                           <History className="w-4 h-4" />
@@ -373,38 +375,113 @@ export const CustomersPage: React.FC = () => {
         </Modal>
       )}
 
-      {/* ACCOUNT MOVEMENTS HISTORY MODAL */}
+      {/* ESTADO DE CUENTA Y COMPRAS DEL CLIENTE */}
       {selectedCustomer && historyData && (
-        <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title={`Historial Cta. Cte.: ${selectedCustomer.name}`} maxWidth="lg">
-          <div className="space-y-3">
-            <div className="overflow-x-auto max-h-96">
-              <table className="w-full text-left text-xs text-body">
-                <thead className="bg-app text-secondary border-b border-surface2">
-                  <tr>
-                    <th className="p-3">Fecha</th>
-                    <th className="p-3">Tipo</th>
-                    <th className="p-3">Concepto</th>
-                    <th className="p-3 text-right">Monto</th>
-                    <th className="p-3 text-right">Saldo Posterior</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface2">
-                  {historyData.movements.map((m: any) => (
-                    <tr key={m.id}>
-                      <td className="p-3">{new Date(m.createdAt).toLocaleString('es-AR')}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded font-bold ${m.type === 'CHARGE_DEBT' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}>
-                          {m.type === 'CHARGE_DEBT' ? 'DEUDA' : 'PAGO'}
-                        </span>
-                      </td>
-                      <td className="p-3">{m.notes || '-'}</td>
-                      <td className="p-3 text-right font-mono">${m.amount.toFixed(2)}</td>
-                      <td className="p-3 text-right font-mono font-bold">${m.balanceAfter.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title={`Estado de Cuenta: ${selectedCustomer.name}`} maxWidth="lg">
+          <div className="space-y-4">
+            {/* Resumen */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Total Comprado</div>
+                <div className="text-sm font-bold font-mono text-heading mt-1">${historyData.summary.totalPurchased.toFixed(2)}</div>
+              </div>
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Cant. de Compras</div>
+                <div className="text-sm font-bold font-mono text-heading mt-1">{historyData.summary.salesCount}</div>
+              </div>
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Saldo Actual</div>
+                <div className={`text-sm font-bold font-mono mt-1 ${historyData.summary.currentBalance > 0 ? 'text-amber-400' : historyData.summary.currentBalance < 0 ? 'text-emerald-400' : 'text-heading'}`}>
+                  ${historyData.summary.currentBalance.toFixed(2)}
+                </div>
+              </div>
             </div>
+
+            {/* Tabs */}
+            <div className="flex bg-surface2 p-1 rounded-lg w-fit">
+              <button
+                onClick={() => setHistoryTab('movements')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition ${
+                  historyTab === 'movements' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5" /> Movimientos de Cuenta
+              </button>
+              <button
+                onClick={() => setHistoryTab('sales')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition ${
+                  historyTab === 'sales' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" /> Compras Realizadas
+              </button>
+            </div>
+
+            {historyTab === 'movements' ? (
+              <div className="overflow-x-auto max-h-96">
+                <table className="w-full text-left text-xs text-body">
+                  <thead className="bg-app text-secondary border-b border-surface2">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Tipo</th>
+                      <th className="p-3">Concepto</th>
+                      <th className="p-3 text-right">Monto</th>
+                      <th className="p-3 text-right">Saldo Posterior</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface2">
+                    {historyData.movements.length === 0 ? (
+                      <tr><td colSpan={5} className="p-6 text-center text-muted">Sin movimientos de cuenta.</td></tr>
+                    ) : historyData.movements.map((m: any) => (
+                      <tr key={m.id}>
+                        <td className="p-3">{new Date(m.createdAt).toLocaleString('es-AR')}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded font-bold ${m.type === 'CHARGE_DEBT' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}>
+                            {m.type === 'CHARGE_DEBT' ? 'DEUDA' : 'PAGO'}
+                          </span>
+                        </td>
+                        <td className="p-3">{m.notes || '-'}</td>
+                        <td className="p-3 text-right font-mono">${m.amount.toFixed(2)}</td>
+                        <td className="p-3 text-right font-mono font-bold">${m.balanceAfter.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-96">
+                <table className="w-full text-left text-xs text-body">
+                  <thead className="bg-app text-secondary border-b border-surface2">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Nº Venta</th>
+                      <th className="p-3">Sucursal</th>
+                      <th className="p-3 text-right">Total</th>
+                      <th className="p-3 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface2">
+                    {historyData.sales.length === 0 ? (
+                      <tr><td colSpan={5} className="p-6 text-center text-muted">Este cliente todavía no tiene compras registradas.</td></tr>
+                    ) : historyData.sales.map((s: any) => (
+                      <tr key={s.id}>
+                        <td className="p-3">{new Date(s.createdAt).toLocaleString('es-AR')}</td>
+                        <td className="p-3 font-mono font-bold text-teal-400">{s.saleNumber}</td>
+                        <td className="p-3 text-secondary">{s.sucursal?.nombre}</td>
+                        <td className="p-3 text-right font-mono font-bold">${s.total.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            s.status === 'COMPLETED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-red-950 text-red-300 border border-red-800'
+                          }`}>
+                            {s.status === 'COMPLETED' ? 'COMPLETADA' : 'ANULADA'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </Modal>
       )}

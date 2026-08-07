@@ -214,19 +214,35 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
   }
 });
 
-// GET /api/suppliers/:id/account
+// GET /api/suppliers/:id/account — estado de situación completo: deuda actual,
+// movimientos de cuenta y el historial real de compras a ese proveedor.
 router.get('/:id/account', authenticateToken, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const supplier = await prisma.supplier.findUnique({ where: { id } });
     if (!supplier) return res.status(404).json({ error: 'Proveedor no encontrado.' });
 
-    const movements = await prisma.supplierAccountMovement.findMany({
-      where: { supplierId: id },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [movements, purchases] = await Promise.all([
+      prisma.supplierAccountMovement.findMany({
+        where: { supplierId: id },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.purchase.findMany({
+        where: { supplierId: id },
+        include: { sucursal: { select: { id: true, nombre: true } }, items: true },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    ]);
 
-    return res.json({ supplier, movements });
+    const completedPurchases = purchases.filter((p) => p.status === 'COMPLETED');
+    const summary = {
+      totalSpent: completedPurchases.reduce((sum, p) => sum + p.total, 0),
+      purchasesCount: completedPurchases.length,
+      currentBalance: supplier.balance,
+    };
+
+    return res.json({ supplier, movements, purchases, summary });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/useAuthStore';
-import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2 } from 'lucide-react';
+import { downloadFile } from '../utils/download';
+import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2, Download, Database } from 'lucide-react';
 
-type Tab = 'empresa' | 'sucursales' | 'usuarios';
+type Tab = 'empresa' | 'sucursales' | 'usuarios' | 'exportar';
 
 export const ConfigPage: React.FC = () => {
   const { user } = useAuthStore();
@@ -36,6 +37,7 @@ export const ConfigPage: React.FC = () => {
           ['empresa', 'Empresa', Settings],
           ['sucursales', 'Sucursales', Building2],
           ['usuarios', 'Usuarios', Users],
+          ['exportar', 'Exportar Datos', Download],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
@@ -53,6 +55,63 @@ export const ConfigPage: React.FC = () => {
       {tab === 'empresa' && <EmpresaTab />}
       {tab === 'sucursales' && <SucursalesTab />}
       {tab === 'usuarios' && <UsuariosTab />}
+      {tab === 'exportar' && <ExportarTab />}
+    </div>
+  );
+};
+
+const ExportarTab: React.FC = () => {
+  const exportables = [
+    { key: 'customers.csv', label: 'Clientes', desc: 'Listado completo con saldo de cuenta corriente.' },
+    { key: 'suppliers.csv', label: 'Proveedores', desc: 'Listado completo con saldo de deuda.' },
+    { key: 'products.csv', label: 'Productos', desc: 'Catálogo con precios y stock por sucursal.' },
+    { key: 'sales.csv', label: 'Ventas', desc: 'Historial completo de ventas (todas las sucursales).' },
+    { key: 'purchases.csv', label: 'Compras', desc: 'Historial completo de compras a proveedores.' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-surface border border-surface2 rounded-2xl p-6 space-y-4 shadow-xl">
+        <h3 className="text-sm font-bold text-teal-400 uppercase tracking-wider border-b border-surface2 pb-2">
+          Exportar Datos (CSV)
+        </h3>
+        <p className="text-xs text-secondary">
+          Descarga en formato CSV (se abre directo en Excel) de cada sección del sistema. Solo disponible para administradores.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {exportables.map((e) => (
+            <button
+              key={e.key}
+              onClick={() => downloadFile(`/export/${e.key}`, e.key)}
+              className="flex items-center justify-between gap-3 p-4 bg-app border border-surface2 rounded-xl hover:border-teal-600 transition text-left"
+            >
+              <div>
+                <div className="text-sm font-bold text-heading">{e.label}</div>
+                <div className="text-[11px] text-secondary mt-0.5">{e.desc}</div>
+              </div>
+              <Download className="w-4 h-4 text-teal-400 shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-surface border border-amber-800/50 rounded-2xl p-6 space-y-3 shadow-xl">
+        <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider border-b border-surface2 pb-2 flex items-center gap-2">
+          <Database className="w-4 h-4" /> Backup Completo de la Base de Datos
+        </h3>
+        <p className="text-xs text-secondary">
+          Descarga un archivo JSON con absolutamente todos los datos del sistema (empresa, sucursales, productos,
+          clientes, proveedores, ventas, compras, caja, presupuestos, comprobantes ARCA). No incluye contraseñas.
+          Es información muy sensible — guardalo en un lugar seguro y no lo compartas.
+        </p>
+        <button
+          onClick={() => downloadFile('/export/full', 'full_clean_backup.json')}
+          className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
+        >
+          <Database className="w-4 h-4" />
+          Descargar Backup Completo (JSON)
+        </button>
+      </div>
     </div>
   );
 };

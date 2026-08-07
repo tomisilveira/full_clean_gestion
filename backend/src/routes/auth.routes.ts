@@ -154,6 +154,9 @@ router.post('/users', authenticateToken, requireRole(['ADMIN']), async (req, res
     if (!username || !password || !name) {
       return res.status(400).json({ error: 'Campos obligatorios requeridos (usuario, contraseña, nombre).' });
     }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
+    }
 
     const existing = await prisma.user.findUnique({
       where: { username: username.toLowerCase().trim() },
@@ -193,6 +196,10 @@ router.put('/users/:id', authenticateToken, requireRole(['ADMIN']), async (req, 
   try {
     const id = parseInt(req.params.id);
     const { name, role, active, password, sucursalIds } = req.body;
+
+    if (password && password.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
+    }
 
     const data: any = {};
     if (name !== undefined) data.name = name;

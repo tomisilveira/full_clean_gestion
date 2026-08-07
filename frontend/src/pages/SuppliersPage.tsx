@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { Modal } from '../components/Modal';
 import { toastSuccess } from '../store/useToastStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { Truck, Plus, PackagePlus, DollarSign, History, Ban, Eye, X } from 'lucide-react';
+import { Truck, Plus, PackagePlus, DollarSign, History, Ban, Eye, X, ShoppingBag, Wallet } from 'lucide-react';
 
 export const SuppliersPage: React.FC = () => {
   const { user } = useAuthStore();
@@ -14,6 +14,8 @@ export const SuppliersPage: React.FC = () => {
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isPurchaseDetailOpen, setIsPurchaseDetailOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [accountTab, setAccountTab] = useState<'movements' | 'purchases'>('movements');
   const [selectedPurchase, setSelectedPurchase] = useState<any>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<any>(null);
 
@@ -49,6 +51,12 @@ export const SuppliersPage: React.FC = () => {
     queryKey: ['purchases'],
     queryFn: async () => (await api.get('/purchases')).data,
     enabled: activeTab === 'purchases',
+  });
+
+  const { data: accountData } = useQuery({
+    queryKey: ['supplierAccount', selectedSupplier?.id],
+    queryFn: async () => (await api.get(`/suppliers/${selectedSupplier.id}/account`)).data,
+    enabled: Boolean(selectedSupplier && isAccountModalOpen),
   });
 
   const saveSupplierMutation = useMutation({
@@ -242,6 +250,18 @@ export const SuppliersPage: React.FC = () => {
                           className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-amber-400 transition"
                         >
                           <DollarSign className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setSelectedSupplier(s);
+                            setAccountTab('movements');
+                            setIsAccountModalOpen(true);
+                          }}
+                          title="Ver Estado de Cuenta y Compras"
+                          className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-body transition"
+                        >
+                          <History className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -512,6 +532,115 @@ export const SuppliersPage: React.FC = () => {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* ESTADO DE CUENTA Y COMPRAS DEL PROVEEDOR */}
+      {selectedSupplier && accountData && (
+        <Modal isOpen={isAccountModalOpen} onClose={() => setIsAccountModalOpen(false)} title={`Estado de Cuenta: ${selectedSupplier.name}`} maxWidth="lg">
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Total Gastado</div>
+                <div className="text-sm font-bold font-mono text-heading mt-1">${accountData.summary.totalSpent.toFixed(2)}</div>
+              </div>
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Cant. de Compras</div>
+                <div className="text-sm font-bold font-mono text-heading mt-1">{accountData.summary.purchasesCount}</div>
+              </div>
+              <div className="p-3 bg-app border border-surface2 rounded-xl text-center">
+                <div className="text-[10px] uppercase font-semibold text-secondary">Deuda Actual</div>
+                <div className={`text-sm font-bold font-mono mt-1 ${accountData.summary.currentBalance > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  ${accountData.summary.currentBalance.toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex bg-surface2 p-1 rounded-lg w-fit">
+              <button
+                onClick={() => setAccountTab('movements')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition ${
+                  accountTab === 'movements' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5" /> Movimientos de Cuenta
+              </button>
+              <button
+                onClick={() => setAccountTab('purchases')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition ${
+                  accountTab === 'purchases' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" /> Compras Realizadas
+              </button>
+            </div>
+
+            {accountTab === 'movements' ? (
+              <div className="overflow-x-auto max-h-96">
+                <table className="w-full text-left text-xs text-body">
+                  <thead className="bg-app text-secondary border-b border-surface2">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Tipo</th>
+                      <th className="p-3">Concepto</th>
+                      <th className="p-3 text-right">Monto</th>
+                      <th className="p-3 text-right">Saldo Posterior</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface2">
+                    {accountData.movements.length === 0 ? (
+                      <tr><td colSpan={5} className="p-6 text-center text-muted">Sin movimientos de cuenta.</td></tr>
+                    ) : accountData.movements.map((m: any) => (
+                      <tr key={m.id}>
+                        <td className="p-3">{new Date(m.createdAt).toLocaleString('es-AR')}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded font-bold ${m.type === 'PURCHASE_DEBT' ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}>
+                            {m.type === 'PURCHASE_DEBT' ? 'DEUDA' : 'PAGO'}
+                          </span>
+                        </td>
+                        <td className="p-3">{m.notes || '-'}</td>
+                        <td className="p-3 text-right font-mono">${m.amount.toFixed(2)}</td>
+                        <td className="p-3 text-right font-mono font-bold">${m.balanceAfter.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-96">
+                <table className="w-full text-left text-xs text-body">
+                  <thead className="bg-app text-secondary border-b border-surface2">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Fact./Remito</th>
+                      <th className="p-3">Sucursal</th>
+                      <th className="p-3 text-right">Total</th>
+                      <th className="p-3 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface2">
+                    {accountData.purchases.length === 0 ? (
+                      <tr><td colSpan={5} className="p-6 text-center text-muted">Todavía no hay compras registradas a este proveedor.</td></tr>
+                    ) : accountData.purchases.map((p: any) => (
+                      <tr key={p.id}>
+                        <td className="p-3">{new Date(p.createdAt).toLocaleString('es-AR')}</td>
+                        <td className="p-3 font-mono text-secondary">{p.invoiceNumber || '-'}</td>
+                        <td className="p-3 text-secondary">{p.sucursal?.nombre}</td>
+                        <td className="p-3 text-right font-mono font-bold">${p.total.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            p.status === 'COMPLETED' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-red-950 text-red-300 border border-red-800'
+                          }`}>
+                            {p.status === 'COMPLETED' ? 'REGISTRADA' : 'ANULADA'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </Modal>
       )}
 

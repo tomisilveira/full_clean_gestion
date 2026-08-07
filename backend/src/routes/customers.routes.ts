@@ -68,19 +68,35 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async 
   }
 });
 
-// GET /api/customers/:id/account
+// GET /api/customers/:id/account — estado de situación completo: saldo cta. cte.,
+// movimientos de cuenta y el historial real de compras (no solo la deuda/pago).
 router.get('/:id/account', authenticateToken, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const customer = await prisma.customer.findUnique({ where: { id } });
     if (!customer) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-    const movements = await prisma.customerAccountMovement.findMany({
-      where: { customerId: id },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [movements, sales] = await Promise.all([
+      prisma.customerAccountMovement.findMany({
+        where: { customerId: id },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.sale.findMany({
+        where: { customerId: id },
+        include: { sucursal: { select: { id: true, nombre: true } }, items: true, payments: true },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    ]);
 
-    return res.json({ customer, movements });
+    const completedSales = sales.filter((s) => s.status === 'COMPLETED');
+    const summary = {
+      totalPurchased: completedSales.reduce((sum, s) => sum + s.total, 0),
+      salesCount: completedSales.length,
+      currentBalance: customer.balance,
+    };
+
+    return res.json({ customer, movements, sales, summary });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
