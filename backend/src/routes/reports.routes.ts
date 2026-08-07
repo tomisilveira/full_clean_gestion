@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 
 const router = Router();
+
+// Reportes: ADMIN y SOLO_CONSULTA (el rol existe justamente para esto, ver README).
+// VENDEDOR queda afuera a propósito — no debe ver rentabilidad, valorización de stock
+// ni el consolidado de caja de otros usuarios/sucursales.
+router.use(authenticateToken, requireRole(['ADMIN', 'SOLO_CONSULTA']));
 
 // Resuelve el alcance de un reporte: sucursal activa por defecto, o consolidado/otra sucursal para ADMIN.
 function resolveScope(req: AuthRequest): { sucursalId?: number } {
@@ -13,7 +18,7 @@ function resolveScope(req: AuthRequest): { sucursalId?: number } {
 }
 
 // GET /api/reports/dashboard (?all=true o ?sucursalId= para ADMIN)
-router.get('/dashboard', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/dashboard', async (req: AuthRequest, res) => {
   try {
     const scope = resolveScope(req);
 
@@ -66,7 +71,7 @@ router.get('/dashboard', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // GET /api/reports/sales (?startDate, ?endDate, ?all=true o ?sucursalId= para ADMIN)
-router.get('/sales', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/sales', async (req: AuthRequest, res) => {
   try {
     const scope = resolveScope(req);
     const { startDate, endDate } = req.query;
@@ -145,7 +150,7 @@ router.get('/sales', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // GET /api/reports/profitability (?all=true o ?sucursalId= para ADMIN)
-router.get('/profitability', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/profitability', async (req: AuthRequest, res) => {
   try {
     const scope = resolveScope(req);
 
@@ -186,7 +191,7 @@ router.get('/profitability', authenticateToken, async (req: AuthRequest, res) =>
 });
 
 // GET /api/reports/stock-value (?all=true o ?sucursalId= para ADMIN)
-router.get('/stock-value', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/stock-value', async (req: AuthRequest, res) => {
   try {
     const scope = resolveScope(req);
 
@@ -228,7 +233,7 @@ router.get('/stock-value', authenticateToken, async (req: AuthRequest, res) => {
 
 // GET /api/reports/cash-summary (?startDate, ?endDate, ?all=true o ?sucursalId= para ADMIN)
 // Reporte de caja diario discriminado por medio de pago, por sucursal y consolidado.
-router.get('/cash-summary', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/cash-summary', async (req: AuthRequest, res) => {
   try {
     const scope = resolveScope(req);
     const { startDate, endDate } = req.query;

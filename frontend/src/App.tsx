@@ -1,5 +1,5 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
@@ -15,8 +15,18 @@ import { SalesPage } from './pages/SalesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ConfigPage } from './pages/ConfigPage';
 
-const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token, activeSucursal } = useAuthStore();
+const ProtectedLayout: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
+  children,
+  allowedRoles,
+}) => {
+  const { token, activeSucursal, user } = useAuthStore();
+  const location = useLocation();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Cierra el drawer de navegación mobile al cambiar de página (si quedó abierto).
+  React.useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   if (!token) {
     return <Navigate to="/login" replace />;
@@ -26,12 +36,23 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
     return <SucursalGate />;
   }
 
+  // El link ya está oculto en el Sidebar para roles sin acceso, pero esto evita que
+  // alguien entre igual escribiendo la URL a mano (el backend también lo rechaza,
+  // esto es solo para no mostrar una pantalla que después falla al pedir datos).
+  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <div className="min-h-screen bg-app flex flex-col">
-      <Navbar />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto bg-app">{children}</main>
+      <Navbar onToggleMenu={() => setMobileNavOpen((o) => !o)} />
+      {/* min-w-0 es necesario para que los overflow-x-auto de las tablas de cada página
+          scrolleen puertas adentro en vez de estirar todo el layout horizontalmente en
+          mobile (comportamiento por defecto de flexbox: un hijo no se achica más allá
+          del ancho intrínseco de su contenido salvo que se le dé min-width: 0). */}
+      <div className="flex flex-1 overflow-hidden min-w-0">
+        <Sidebar open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
+        <main className="flex-1 min-w-0 overflow-y-auto bg-app">{children}</main>
       </div>
     </div>
   );
@@ -108,7 +129,7 @@ export const App: React.FC = () => {
       <Route
         path="/reports"
         element={
-          <ProtectedLayout>
+          <ProtectedLayout allowedRoles={['ADMIN', 'SOLO_CONSULTA']}>
             <ReportsPage />
           </ProtectedLayout>
         }

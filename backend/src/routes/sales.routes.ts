@@ -53,7 +53,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // GET /api/sales/:id
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const id = parseInt(req.params.id);
     const sale = await prisma.sale.findUnique({
@@ -70,6 +70,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     });
 
     if (!sale) return res.status(404).json({ error: 'Venta no encontrada.' });
+
+    // Aislamiento por sucursal: un ADMIN puede ver cualquier venta; el resto solo las
+    // de su(s) sucursal(es) asignada(s) (la activa en el token).
+    if (req.user?.role !== 'ADMIN' && sale.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a esta venta (pertenece a otra sucursal).' });
+    }
+
     return res.json(sale);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
@@ -123,7 +130,10 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
         return res.status(400).json({ error: `Cantidad inválida para producto ${product.name}` });
       }
 
-      const unitPrice = item.unitPrice !== undefined ? parseFloat(item.unitPrice) : (saleType === 'WHOLESALE' ? product.wholesalePrice : product.salePrice);
+      // El precio SIEMPRE se toma del catálogo del servidor según el tipo de venta, nunca
+      // del body del request: aceptar item.unitPrice del cliente permitía a cualquier
+      // VENDEDOR facturar productos al precio que quisiera (ej. $0.01) editando el request.
+      const unitPrice = saleType === 'WHOLESALE' ? product.wholesalePrice : product.salePrice;
       const itemSubtotal = qty * unitPrice;
       subtotal += itemSubtotal;
 
@@ -138,6 +148,9 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
     }
 
     const discountAmount = parseFloat(discount || 0);
+    if (discountAmount < 0 || discountAmount > subtotal) {
+      return res.status(400).json({ error: 'El descuento debe ser un monto válido entre $0 y el subtotal de la venta.' });
+    }
     const total = subtotal - discountAmount;
 
     // Validate payment sum matches total

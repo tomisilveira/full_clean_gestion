@@ -1,9 +1,34 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { prisma } from '../db/prisma';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
+
+// Escapa texto para incrustar de forma segura dentro de HTML. Los tickets vuelcan
+// datos que carga el usuario (nombre de producto, nombre/CUIT de cliente, razón social
+// de la empresa, etc.) directamente en el documento que se abre en una ventana nueva
+// (ver frontend/src/utils/tickets.ts) — sin escapar, un nombre de producto o cliente
+// con HTML/JS quedaba ejecutando en esa ventana (mismo origen que la app, mismo
+// localStorage) apenas alguien imprimía o veía el ticket. Nunca interpolar strings
+// de datos del usuario en este archivo sin pasarlos por acá primero.
+function escapeHtml(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Para atributos como src=""/href="": además de escapar, sólo se permiten URLs http(s)
+// (bloquea "javascript:" y similares si algún día logoUrl u otro campo se vuelve más libre).
+function safeUrl(value: unknown): string {
+  const str = String(value || '').trim();
+  if (!/^https?:\/\//i.test(str)) return '';
+  return escapeHtml(str);
+}
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   CASH: 'Efectivo',
@@ -30,7 +55,7 @@ function requiresInvoice(sale: any): boolean {
 }
 
 // GET /api/tickets/sale/:id/html (Returns HTML formatted ticket for browser printing)
-router.get('/sale/:id/html', authenticateToken, async (req, res) => {
+router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const sale = await prisma.sale.findUnique({
@@ -46,6 +71,9 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
     });
 
     if (!sale) return res.status(404).send('Venta no encontrada');
+    if (req.user?.role !== 'ADMIN' && sale.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).send('No tiene acceso a esta venta (pertenece a otra sucursal).');
+    }
 
     const config = await prisma.companyConfig.findFirst() || {
       businessName: 'Artículos de Limpieza Full Clean',
@@ -68,7 +96,7 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
     <html lang="es">
     <head>
       <meta charset="UTF-8">
-      <title>Ticket #${sale.saleNumber}</title>
+      <title>Ticket #${escapeHtml(sale.saleNumber)}</title>
       <style>
         * { box-sizing: border-box; }
         body {
@@ -117,21 +145,21 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
       </div>
 
       <div class="text-center">
-        ${config.logoUrl ? `<img class="logo" src="${config.logoUrl}" alt="${config.businessName}" />` : ''}
-        <div class="bold" style="font-size: 16px;">${config.businessName}</div>
-        <div>CUIT: ${config.cuit}</div>
-        <div class="bold">${sale.sucursal.nombre}</div>
-        <div>${sale.sucursal.direccion || ''}</div>
-        <div>Tel: ${config.phone}</div>
+        ${config.logoUrl && safeUrl(config.logoUrl) ? `<img class="logo" src="${safeUrl(config.logoUrl)}" alt="${escapeHtml(config.businessName)}" />` : ''}
+        <div class="bold" style="font-size: 16px;">${escapeHtml(config.businessName)}</div>
+        <div>CUIT: ${escapeHtml(config.cuit)}</div>
+        <div class="bold">${escapeHtml(sale.sucursal.nombre)}</div>
+        <div>${escapeHtml(sale.sucursal.direccion || '')}</div>
+        <div>Tel: ${escapeHtml(config.phone)}</div>
       </div>
       <div class="divider"></div>
-      <div class="bold text-center">${comprobanteLabel}</div>
+      <div class="bold text-center">${escapeHtml(comprobanteLabel)}</div>
       ${!sale.invoiceARCA ? `<div class="text-center"><span class="no-fiscal-badge">${requiresInvoice(sale) ? '⚠ PENDIENTE DE FACTURAR' : 'Comprobante interno, no válido como factura'}</span></div>` : ''}
-      <div>Nº: ${sale.invoiceARCA ? `${sale.invoiceARCA.ptoVta.toString().padStart(4, '0')}-${sale.invoiceARCA.cbteDesde.toString().padStart(8, '0')}` : sale.saleNumber}</div>
-      <div>Fecha: ${new Date(sale.createdAt).toLocaleString('es-AR')}</div>
-      <div>Atendido por: ${sale.user.name}</div>
-      ${sale.customer ? `<div>Cliente: ${sale.customer.name}${sale.customer.cuitDni ? ` (${sale.customer.cuitDni})` : ''}</div>` : ''}
-      ${sale.customer?.ivaCondition ? `<div class="muted">Cond. IVA: ${sale.customer.ivaCondition}</div>` : ''}
+      <div>Nº: ${sale.invoiceARCA ? `${sale.invoiceARCA.ptoVta.toString().padStart(4, '0')}-${sale.invoiceARCA.cbteDesde.toString().padStart(8, '0')}` : escapeHtml(sale.saleNumber)}</div>
+      <div>Fecha: ${escapeHtml(new Date(sale.createdAt).toLocaleString('es-AR'))}</div>
+      <div>Atendido por: ${escapeHtml(sale.user.name)}</div>
+      ${sale.customer ? `<div>Cliente: ${escapeHtml(sale.customer.name)}${sale.customer.cuitDni ? ` (${escapeHtml(sale.customer.cuitDni)})` : ''}</div>` : ''}
+      ${sale.customer?.ivaCondition ? `<div class="muted">Cond. IVA: ${escapeHtml(sale.customer.ivaCondition)}</div>` : ''}
 
       <div class="divider"></div>
       <table>
@@ -145,7 +173,7 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
         <tbody>
           ${sale.items.map(item => `
             <tr>
-              <td colspan="3" class="bold" style="text-align: left;">${item.productName}</td>
+              <td colspan="3" class="bold" style="text-align: left;">${escapeHtml(item.productName)}</td>
             </tr>
             <tr>
               <td style="text-align: left;">${item.quantity} x</td>
@@ -166,14 +194,14 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
       <div class="divider"></div>
       <div class="bold">Forma(s) de Pago:</div>
       ${sale.payments.map(p => `
-        <div class="row"><span>${PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod}:</span><span>$${p.amount.toFixed(2)}</span></div>
+        <div class="row"><span>${escapeHtml(PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod)}:</span><span>$${p.amount.toFixed(2)}</span></div>
       `).join('')}
 
       ${sale.invoiceARCA ? `
         <div class="divider"></div>
         <div class="text-center">
-          <div class="bold">CAE: ${sale.invoiceARCA.cae}</div>
-          <div>Vto CAE: ${sale.invoiceARCA.caeVto}</div>
+          <div class="bold">CAE: ${escapeHtml(sale.invoiceARCA.cae)}</div>
+          <div>Vto CAE: ${escapeHtml(sale.invoiceARCA.caeVto)}</div>
           ${sale.invoiceARCA.afipQrUrl ? `
             <div class="qr-container">
               <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(sale.invoiceARCA.afipQrUrl)}" alt="QR ARCA" />
@@ -195,7 +223,7 @@ router.get('/sale/:id/html', authenticateToken, async (req, res) => {
 });
 
 // POST /api/tickets/sale/:id/print (Thermal printing via ESC/POS to connected printer)
-router.post('/sale/:id/print', authenticateToken, async (req, res) => {
+router.post('/sale/:id/print', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const sale = await prisma.sale.findUnique({
@@ -204,6 +232,9 @@ router.post('/sale/:id/print', authenticateToken, async (req, res) => {
     });
 
     if (!sale) return res.status(404).json({ error: 'Venta no encontrada' });
+    if (req.user?.role !== 'ADMIN' && sale.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a esta venta (pertenece a otra sucursal).' });
+    }
 
     const config = await prisma.companyConfig.findFirst();
     if (!config || sale.sucursal.printerInterface === 'NONE') {

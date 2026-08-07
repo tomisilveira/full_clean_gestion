@@ -27,6 +27,10 @@ export const PosPage: React.FC = () => {
   const [isQuickModalOpen, setIsQuickModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [createdSale, setCreatedSale] = useState<any>(null);
+  // En mobile el carrito no cabe al lado de la lista de productos: pasa a ser una hoja
+  // a pantalla completa que se abre desde una barra flotante inferior (ver más abajo).
+  // En desktop (md+) esta variable no se usa: el carrito siempre está visible al costado.
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -151,6 +155,7 @@ export const PosPage: React.FC = () => {
     onSuccess: (data) => {
       setCreatedSale(data);
       setIsCheckoutModalOpen(false);
+      setMobileCartOpen(false);
       clearCart();
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['currentCash'] });
@@ -181,13 +186,15 @@ export const PosPage: React.FC = () => {
     setIsCheckoutModalOpen(true);
   };
 
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)] overflow-hidden relative">
       {/* LEFT SECTION: Search & Product Catalog Grid */}
-      <div className="flex-1 flex flex-col p-4 overflow-hidden border-r border-surface2">
+      <div className="flex-1 min-w-0 flex flex-col p-4 pb-20 md:pb-4 overflow-hidden md:border-r border-surface2">
         {/* Search Bar (Optimizada para Lector HID de Código de Barras) */}
         <form onSubmit={handleSearchSubmit} className="mb-4 flex space-x-3">
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <Barcode className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-teal-400" />
             <input
               ref={searchInputRef}
@@ -200,10 +207,10 @@ export const PosPage: React.FC = () => {
           </div>
           <button
             type="submit"
-            className="px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl transition flex items-center space-x-2 shadow-lg shadow-teal-500/20"
+            className="px-4 sm:px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl transition flex items-center space-x-2 shadow-lg shadow-teal-500/20 shrink-0"
           >
             <Search className="w-5 h-5" />
-            <span>Buscar</span>
+            <span className="hidden sm:inline">Buscar</span>
           </button>
         </form>
 
@@ -235,7 +242,7 @@ export const PosPage: React.FC = () => {
         </div>
 
         {/* Products List */}
-        <div className="flex-1 overflow-y-auto pr-1 rounded-xl border border-surface2 bg-surface/40">
+        <div className="flex-1 min-w-0 overflow-auto pr-1 rounded-xl border border-surface2 bg-surface/40">
           {isLoadingProducts ? (
             <div className="flex items-center justify-center text-muted text-sm py-12">
               Cargando productos...
@@ -302,8 +309,22 @@ export const PosPage: React.FC = () => {
         </div>
       </div>
 
-      {/* RIGHT SECTION: Cart Side Panel */}
-      <div className="w-96 bg-surface/90 flex flex-col shrink-0 border-l border-surface2">
+      {/* RIGHT SECTION: Cart Side Panel — panel fijo en desktop (md+); en mobile es una
+          hoja a pantalla completa que se abre/cierra con mobileCartOpen. */}
+      <div
+        className={`${mobileCartOpen ? 'flex' : 'hidden'} md:flex fixed md:static inset-0 z-40 md:z-auto w-full md:w-96 bg-surface md:bg-surface/90 flex-col shrink-0 border-l border-surface2`}
+      >
+        {/* Header solo-mobile: título + volver al catálogo */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface2 md:hidden">
+          <span className="text-sm font-bold text-heading">Carrito de Venta</span>
+          <button
+            onClick={() => setMobileCartOpen(false)}
+            className="px-3 py-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-secondary hover:text-heading text-xs font-semibold"
+          >
+            ← Seguir comprando
+          </button>
+        </div>
+
         {/* Customer & Sale Type Selection Header */}
         <div className="p-4 border-b border-surface2 space-y-3">
           <div className="flex items-center justify-between">
@@ -447,6 +468,21 @@ export const PosPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Barra flotante para abrir el carrito en mobile (el panel de arriba está oculto
+          por defecto en pantallas chicas). Muestra cantidad de items y total corriente. */}
+      {!mobileCartOpen && (
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-teal-600 hover:bg-teal-500 text-white flex items-center justify-between px-4 py-3.5 shadow-lg shadow-black/20"
+        >
+          <span className="flex items-center gap-2 text-sm font-bold">
+            <ShoppingCart className="w-4 h-4" />
+            {cartItemCount > 0 ? `${cartItemCount} ${cartItemCount === 1 ? 'ítem' : 'ítems'}` : 'Carrito vacío'}
+          </span>
+          <span className="font-mono font-bold text-sm">${totalAmount.toFixed(2)} · Ver carrito</span>
+        </button>
+      )}
 
       {/* QUICK BARCODE MODAL */}
       <QuickBarcodeModal
