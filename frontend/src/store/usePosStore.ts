@@ -10,20 +10,27 @@ export interface CartItem {
   stockAvailable: number;
 }
 
+export const CARD_TYPES = ['Visa', 'Mastercard', 'American Express', 'Cabal', 'Naranja', 'Otra'];
+
 export interface PaymentItem {
   paymentMethod: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER' | 'MERCADO_PAGO' | 'CURRENT_ACCOUNT';
   amount: number;
   reference?: string;
+  cardType?: string; // solo DEBIT/CREDIT
+  installments?: number; // solo CREDIT — informativo, no recalcula recargo
 }
+
+export type DiscountType = 'AMOUNT' | 'PERCENTAGE';
 
 interface PosState {
   cart: CartItem[];
   selectedCustomerId: number | null;
   selectedCustomerName: string;
   saleType: 'RETAIL' | 'WHOLESALE';
-  discount: number;
+  discountType: DiscountType;
+  discountValue: number; // $ si AMOUNT, 0-100 si PERCENTAGE
   payments: PaymentItem[];
-  
+
   // Actions
   addItem: (product: any, quantity?: number) => void;
   updateQuantity: (productId: number, quantity: number) => void;
@@ -31,11 +38,13 @@ interface PosState {
   clearCart: () => void;
   setCustomer: (id: number | null, name: string) => void;
   setSaleType: (type: 'RETAIL' | 'WHOLESALE') => void;
-  setDiscount: (discount: number) => void;
+  setDiscountType: (type: DiscountType) => void;
+  setDiscountValue: (value: number) => void;
   setPayments: (payments: PaymentItem[]) => void;
-  
+
   // Totals
   getSubtotal: () => number;
+  getDiscountAmount: () => number;
   getTotal: () => number;
 }
 
@@ -44,7 +53,8 @@ export const usePosStore = create<PosState>((set, get) => ({
   selectedCustomerId: null,
   selectedCustomerName: 'Consumidor Final',
   saleType: 'RETAIL',
-  discount: 0,
+  discountType: 'AMOUNT',
+  discountValue: 0,
   payments: [{ paymentMethod: 'CASH', amount: 0 }],
 
   addItem: (product, quantity = 1) => {
@@ -101,7 +111,8 @@ export const usePosStore = create<PosState>((set, get) => ({
       cart: [],
       selectedCustomerId: null,
       selectedCustomerName: 'Consumidor Final',
-      discount: 0,
+      discountType: 'AMOUNT',
+      discountValue: 0,
       payments: [{ paymentMethod: 'CASH', amount: 0 }],
     });
   },
@@ -115,9 +126,19 @@ export const usePosStore = create<PosState>((set, get) => ({
       // Keep existing unitPrices or reset
     }
   },
-  setDiscount: (discount) => set({ discount }),
+  setDiscountType: (discountType) => set({ discountType }),
+  setDiscountValue: (discountValue) => set({ discountValue }),
   setPayments: (payments) => set({ payments }),
 
   getSubtotal: () => get().cart.reduce((sum, item) => sum + item.subtotal, 0),
-  getTotal: () => Math.max(0, get().getSubtotal() - get().discount),
+  getDiscountAmount: () => {
+    const { discountType, discountValue } = get();
+    const subtotal = get().getSubtotal();
+    if (discountType === 'PERCENTAGE') {
+      const pct = Math.min(100, Math.max(0, discountValue || 0));
+      return Math.round(subtotal * (pct / 100) * 100) / 100;
+    }
+    return Math.max(0, discountValue || 0);
+  },
+  getTotal: () => Math.max(0, get().getSubtotal() - get().getDiscountAmount()),
 }));

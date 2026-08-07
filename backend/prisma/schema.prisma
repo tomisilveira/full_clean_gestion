@@ -311,7 +311,9 @@ model Sale {
   customer   Customer?   @relation(fields: [customerId], references: [id])
   saleType   String      @default("RETAIL") // RETAIL, WHOLESALE
   subtotal   Float
-  discount   Float       @default(0)
+  discountType  String   @default("AMOUNT") // AMOUNT ($ fijo) o PERCENTAGE (% del subtotal)
+  discountValue Float    @default(0) // valor tal cual lo cargó el usuario: $ si AMOUNT, 0-100 si PERCENTAGE
+  discount   Float       @default(0) // monto final ya calculado en $ (subtotal * % o el fijo); lo usan reportes/tickets
   total      Float
   status     String      @default("COMPLETED") // COMPLETED, CANCELLED
   userId     Int
@@ -344,6 +346,8 @@ model Payment {
   paymentMethod String // CASH, DEBIT, CREDIT, TRANSFER, MERCADO_PAGO, CURRENT_ACCOUNT
   amount        Float
   reference     String?
+  cardType      String? // Marca de tarjeta (Visa, Mastercard, Amex, Cabal, Naranja, Otra) - solo DEBIT/CREDIT
+  installments  Int?    // Cantidad de cuotas - solo CREDIT. Dato informativo: no recalcula recargo sobre el total.
 }
 
 // El punto de venta (ptoVta) se toma de la Sucursal de la venta al momento de emitir.

@@ -8,6 +8,7 @@ import sucursalRoutes from './routes/sucursales.routes';
 import categoryRoutes from './routes/categories.routes';
 import productRoutes from './routes/products.routes';
 import supplierRoutes from './routes/suppliers.routes';
+import purchaseRoutes from './routes/purchases.routes';
 import customerRoutes from './routes/customers.routes';
 import budgetRoutes from './routes/budgets.routes';
 import cashRoutes from './routes/cash.routes';
@@ -23,7 +24,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// CORS: normalmente el frontend se sirve desde este mismo proceso (ver más abajo), así
+// que no debería hacer falta habilitar orígenes cruzados. Si se define FRONTEND_URL (para
+// un frontend deployado aparte) se restringe a esa lista; si no, se permite cualquier
+// origen (dev local / demo) pero SIN credentials, ya que la auth va por Bearer token en
+// el header (no por cookies), así que un origen abierto acá no habilita CSRF.
+const allowedOrigins = (process.env.FRONTEND_URL || '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins } : {}));
 app.use(express.json());
 
 // Health Check
@@ -37,6 +44,7 @@ app.use('/api/sucursales', sucursalRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/purchases', purchaseRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/budgets', budgetRoutes);
 app.use('/api/cash', cashRoutes);

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { Modal } from '../components/Modal';
+import { openBudgetPdf } from '../utils/tickets';
+import { toastSuccess } from '../store/useToastStore';
 import { FileText, Plus, FileDown, CheckCircle, ArrowRight } from 'lucide-react';
 
 export const BudgetsPage: React.FC = () => {
@@ -41,6 +43,7 @@ export const BudgetsPage: React.FC = () => {
       setIsCreateModalOpen(false);
       setBudgetItems([]);
       queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      toastSuccess('Presupuesto creado correctamente.');
     },
   });
 
@@ -50,6 +53,7 @@ export const BudgetsPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      toastSuccess('Presupuesto convertido a venta.');
     },
   });
 
@@ -141,15 +145,14 @@ export const BudgetsPage: React.FC = () => {
                     </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center space-x-2">
-                        <a
-                          href={`/api/budgets/${b.id}/pdf`}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => openBudgetPdf(b.id)}
                           title="Descargar PDF"
                           className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-teal-400 transition"
                         >
                           <FileDown className="w-4 h-4" />
-                        </a>
+                        </button>
 
                         {b.status !== 'CONVERTED' && (
                           <button

@@ -184,7 +184,7 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
         </tbody>
       </table>
       <div class="divider"></div>
-      ${sale.discount > 0 ? `<div class="row"><span>Subtotal:</span><span>$${sale.subtotal.toFixed(2)}</span></div><div class="row"><span>Descuento:</span><span>-$${sale.discount.toFixed(2)}</span></div>` : ''}
+      ${sale.discount > 0 ? `<div class="row"><span>Subtotal:</span><span>$${sale.subtotal.toFixed(2)}</span></div><div class="row"><span>Descuento${sale.discountType === 'PERCENTAGE' ? ` (${sale.discountValue}%)` : ''}:</span><span>-$${sale.discount.toFixed(2)}</span></div>` : ''}
       ${sale.invoiceARCA ? `
         <div class="row muted"><span>Neto Gravado:</span><span>$${sale.invoiceARCA.impNeto.toFixed(2)}</span></div>
         <div class="row muted"><span>IVA (21%):</span><span>$${sale.invoiceARCA.impIVA.toFixed(2)}</span></div>
@@ -194,7 +194,7 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
       <div class="divider"></div>
       <div class="bold">Forma(s) de Pago:</div>
       ${sale.payments.map(p => `
-        <div class="row"><span>${escapeHtml(PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod)}:</span><span>$${p.amount.toFixed(2)}</span></div>
+        <div class="row"><span>${escapeHtml(PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod)}${p.cardType ? ` (${escapeHtml(p.cardType)}${p.installments ? `, ${p.installments} cuota${p.installments > 1 ? 's' : ''}` : ''})` : ''}:</span><span>$${p.amount.toFixed(2)}</span></div>
       `).join('')}
 
       ${sale.invoiceARCA ? `
@@ -284,7 +284,7 @@ router.post('/sale/:id/print', authenticateToken, async (req: AuthRequest, res: 
     printer.drawLine();
     if (sale.discount > 0) {
       printer.println(`Subtotal: $${sale.subtotal.toFixed(2)}`);
-      printer.println(`Descuento: -$${sale.discount.toFixed(2)}`);
+      printer.println(`Descuento${sale.discountType === 'PERCENTAGE' ? ` (${sale.discountValue}%)` : ''}: -$${sale.discount.toFixed(2)}`);
     }
     if (sale.invoiceARCA) {
       printer.println(`Neto Gravado: $${sale.invoiceARCA.impNeto.toFixed(2)}`);
@@ -297,7 +297,8 @@ router.post('/sale/:id/print', authenticateToken, async (req: AuthRequest, res: 
     printer.drawLine();
     printer.println('Forma(s) de Pago:');
     for (const p of sale.payments) {
-      printer.println(`${PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod}: $${p.amount.toFixed(2)}`);
+      const cardInfo = p.cardType ? ` (${p.cardType}${p.installments ? `, ${p.installments} cuota${p.installments > 1 ? 's' : ''}` : ''})` : '';
+      printer.println(`${PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod}${cardInfo}: $${p.amount.toFixed(2)}`);
     }
 
     if (sale.invoiceARCA) {

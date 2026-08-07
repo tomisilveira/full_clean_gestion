@@ -84,11 +84,13 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // POST /api/sales (POS Sale Checkout) — usa la caja abierta de la sucursal activa
+const CARD_TYPES = ['Visa', 'Mastercard', 'American Express', 'Cabal', 'Naranja', 'Otra'];
+
 router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireSucursal, async (req: AuthRequest, res: Response) => {
   try {
-    const { customerId, saleType, items, payments, discount } = req.body;
+    const { customerId, saleType, items, payments, discountType, discountValue } = req.body;
     // items: [{ productId, quantity, unitPrice }]
-    // payments: [{ paymentMethod, amount, reference }]
+    // payments: [{ paymentMethod, amount, reference, cardType, installments }]
     const sucursalId = req.user!.sucursalId!;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -147,7 +149,22 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
       });
     }
 
-    const discountAmount = parseFloat(discount || 0);
+    // El descuento SIEMPRE se recalcula acá desde discountType/discountValue (nunca se
+    // confía en un monto final que mande el cliente): mismo criterio que el precio unitario
+    // de arriba, para que no se pueda mandar un "discount" arbitrario en el body.
+    const resolvedDiscountType = discountType === 'PERCENTAGE' ? 'PERCENTAGE' : 'AMOUNT';
+    const rawDiscountValue = parseFloat(discountValue || 0);
+    if (isNaN(rawDiscountValue) || rawDiscountValue < 0) {
+      return res.status(400).json({ error: 'El descuento ingresado no es válido.' });
+    }
+    if (resolvedDiscountType === 'PERCENTAGE' && rawDiscountValue > 100) {
+      return res.status(400).json({ error: 'El descuento por porcentaje no puede superar el 100%.' });
+    }
+
+    const discountAmount = resolvedDiscountType === 'PERCENTAGE'
+      ? Math.round(subtotal * (rawDiscountValue / 100) * 100) / 100
+      : rawDiscountValue;
+
     if (discountAmount < 0 || discountAmount > subtotal) {
       return res.status(400).json({ error: 'El descuento debe ser un monto válido entre $0 y el subtotal de la venta.' });
     }
@@ -159,6 +176,22 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
       return res.status(400).json({
         error: `El total de pagos ($${paymentSum.toFixed(2)}) no coincide con el total de la venta ($${total.toFixed(2)}).`,
       });
+    }
+
+    // Validate card payments (cardType/installments son solo informativos, pero se
+    // valida su forma para no guardar basura en la base).
+    for (const p of payments) {
+      if (p.paymentMethod === 'CREDIT' || p.paymentMethod === 'DEBIT') {
+        if (p.cardType && !CARD_TYPES.includes(p.cardType)) {
+          return res.status(400).json({ error: `Tipo de tarjeta inválido: ${p.cardType}` });
+        }
+      }
+      if (p.paymentMethod === 'CREDIT' && p.installments !== undefined && p.installments !== null && p.installments !== '') {
+        const inst = parseInt(p.installments);
+        if (isNaN(inst) || inst < 1 || inst > 24) {
+          return res.status(400).json({ error: 'La cantidad de cuotas debe ser un número entre 1 y 24.' });
+        }
+      }
     }
 
     // Generate Sale Number
@@ -176,6 +209,8 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
           customerId: customerId ? parseInt(customerId) : null,
           saleType: saleType || 'RETAIL',
           subtotal,
+          discountType: resolvedDiscountType,
+          discountValue: rawDiscountValue,
           discount: discountAmount,
           total,
           status: 'COMPLETED',
@@ -188,6 +223,8 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
               paymentMethod: p.paymentMethod,
               amount: parseFloat(p.amount),
               reference: p.reference || null,
+              cardType: (p.paymentMethod === 'CREDIT' || p.paymentMethod === 'DEBIT') && p.cardType ? p.cardType : null,
+              installments: p.paymentMethod === 'CREDIT' && p.installments ? parseInt(p.installments) : null,
             })),
           },
         },

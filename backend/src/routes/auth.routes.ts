@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest, JWT_SECRET } from '../middleware/auth';
 import { getSucursalesForUser, userCanAccessSucursal } from '../utils/sucursales';
+import { loginRateLimit, registerFailedLogin, clearFailedLogins } from '../middleware/loginRateLimit';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ function signToken(payload: object) {
 // POST /api/auth/login
 // Devuelve un token. Si el usuario tiene una sola sucursal disponible, queda seleccionada automáticamente.
 // Si tiene varias (o es ADMIN), el frontend debe llamar a /api/auth/select-sucursal antes de operar caja/ventas/stock.
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -26,14 +27,17 @@ router.post('/login', async (req, res) => {
     });
 
     if (!user || !user.active) {
+      registerFailedLogin(req);
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
+      registerFailedLogin(req);
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
     }
 
+    clearFailedLogins(req);
     const sucursales = await getSucursalesForUser(user.id, user.role);
 
     if (sucursales.length === 0) {

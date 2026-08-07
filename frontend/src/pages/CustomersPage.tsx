@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { Modal } from '../components/Modal';
+import { toastSuccess } from '../store/useToastStore';
 import { Users, Plus, DollarSign, History, Search } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
@@ -64,6 +65,7 @@ export const CustomersPage: React.FC = () => {
     onSuccess: () => {
       setIsCustomerModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toastSuccess(selectedCustomer ? 'Cliente actualizado correctamente.' : 'Cliente creado correctamente.');
     },
   });
 
@@ -84,6 +86,7 @@ export const CustomersPage: React.FC = () => {
       setPaymentNotes('');
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ queryKey: ['currentCash'] });
+      toastSuccess('Cobro registrado correctamente.');
     },
   });
 

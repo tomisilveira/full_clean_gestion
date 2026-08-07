@@ -43,6 +43,41 @@ describe('Lógica Crítica de Negocio - Full Clean', () => {
   });
 });
 
+describe('Descuento por monto o por porcentaje en una venta', () => {
+  // Misma fórmula que POST /api/sales en sales.routes.ts: el descuento se recalcula
+  // siempre en el servidor a partir de discountType/discountValue, nunca se confía en
+  // un monto final que mande el cliente.
+  function calcularDescuento(subtotal: number, discountType: 'AMOUNT' | 'PERCENTAGE', discountValue: number) {
+    if (discountType === 'PERCENTAGE') {
+      return Math.round(subtotal * (discountValue / 100) * 100) / 100;
+    }
+    return discountValue;
+  }
+
+  it('Debe calcular el descuento por monto fijo tal cual se ingresa', () => {
+    expect(calcularDescuento(3500, 'AMOUNT', 350)).toBe(350);
+  });
+
+  it('Debe calcular el descuento por porcentaje sobre el subtotal', () => {
+    expect(calcularDescuento(3500, 'PERCENTAGE', 10)).toBe(350);
+    expect(calcularDescuento(999, 'PERCENTAGE', 15)).toBe(149.85);
+  });
+
+  it('El descuento final no debe superar el subtotal de la venta', () => {
+    const subtotal = 1000;
+    const discountAmount = calcularDescuento(subtotal, 'PERCENTAGE', 100);
+    expect(discountAmount).toBe(1000);
+    expect(discountAmount).toBeLessThanOrEqual(subtotal);
+  });
+
+  it('El total de la venta debe ser subtotal menos el descuento calculado', () => {
+    const subtotal = 3500;
+    const discountAmount = calcularDescuento(subtotal, 'PERCENTAGE', 10);
+    const total = subtotal - discountAmount;
+    expect(total).toBe(3150);
+  });
+});
+
 describe('Multi-Sucursal: Stock por sucursal', () => {
   // Simula el modelo ProductStock: un mismo producto tiene filas independientes por sucursal.
   type StockPorSucursal = Record<number, { currentStock: number; minStock: number }>;

@@ -4,6 +4,7 @@ import { useAuthStore } from './store/useAuthStore';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { SucursalGate } from './components/SucursalGate';
+import { Toaster } from './components/Toaster';
 import { LoginPage } from './pages/LoginPage';
 import { PosPage } from './pages/PosPage';
 import { ProductsPage } from './pages/ProductsPage';
@@ -60,6 +61,8 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; allowedRoles?: stri
 
 export const App: React.FC = () => {
   return (
+    <>
+    <Toaster />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
@@ -146,5 +149,6 @@ export const App: React.FC = () => {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 };

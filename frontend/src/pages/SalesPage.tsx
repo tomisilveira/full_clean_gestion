@@ -386,7 +386,7 @@ export const SalesPage: React.FC = () => {
               </div>
               {selectedSale.discount > 0 && (
                 <div className="flex justify-between text-teal-400">
-                  <span>Descuento:</span>
+                  <span>Descuento{selectedSale.discountType === 'PERCENTAGE' ? ` (${selectedSale.discountValue}%)` : ''}:</span>
                   <span className="font-mono">-${selectedSale.discount.toFixed(2)}</span>
                 </div>
               )}
@@ -402,7 +402,12 @@ export const SalesPage: React.FC = () => {
               <div className="space-y-1">
                 {selectedSale.payments.map((p: any) => (
                   <div key={p.id} className="flex justify-between bg-surface2/60 px-3 py-1.5 rounded-lg border border-surface3">
-                    <span className="text-secondary">{PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod}</span>
+                    <span className="text-secondary">
+                      {PAYMENT_METHOD_LABELS[p.paymentMethod] || p.paymentMethod}
+                      {p.cardType && (
+                        <span className="text-muted"> ({p.cardType}{p.installments ? `, ${p.installments} cuota${p.installments > 1 ? 's' : ''}` : ''})</span>
+                      )}
+                    </span>
                     <span className="font-mono font-bold text-heading">${p.amount.toFixed(2)}</span>
                   </div>
                 ))}

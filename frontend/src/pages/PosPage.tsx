@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
-import { usePosStore } from '../store/usePosStore';
+import { usePosStore, CARD_TYPES } from '../store/usePosStore';
 import { QuickBarcodeModal } from '../components/QuickBarcodeModal';
 import { Modal } from '../components/Modal';
 import { openTicketPreview } from '../utils/tickets';
+import { toastSuccess } from '../store/useToastStore';
 import {
   Barcode,
   Search,
@@ -46,11 +47,14 @@ export const PosPage: React.FC = () => {
     setCustomer,
     saleType,
     setSaleType,
-    discount,
-    setDiscount,
+    discountType,
+    setDiscountType,
+    discountValue,
+    setDiscountValue,
     payments,
     setPayments,
     getSubtotal,
+    getDiscountAmount,
     getTotal,
   } = usePosStore();
 
@@ -140,6 +144,8 @@ export const PosPage: React.FC = () => {
       const formattedPayments = payments.map((p) => ({
         paymentMethod: p.paymentMethod,
         amount: p.amount,
+        cardType: p.cardType,
+        installments: p.installments,
       }));
 
       const res = await api.post('/sales', {
@@ -147,7 +153,8 @@ export const PosPage: React.FC = () => {
         saleType,
         items: cart,
         payments: formattedPayments,
-        discount,
+        discountType,
+        discountValue,
       });
 
       return res.data;
@@ -160,6 +167,7 @@ export const PosPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['currentCash'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
+      toastSuccess('Venta registrada correctamente.');
     },
   });
 
@@ -429,10 +437,10 @@ export const PosPage: React.FC = () => {
               <span>Subtotal:</span>
               <span className="font-mono text-heading">${getSubtotal().toFixed(2)}</span>
             </div>
-            {discount > 0 && (
+            {getDiscountAmount() > 0 && (
               <div className="flex justify-between text-teal-400">
-                <span>Descuento:</span>
-                <span className="font-mono">-${discount.toFixed(2)}</span>
+                <span>Descuento{discountType === 'PERCENTAGE' ? ` (${discountValue}%)` : ''}:</span>
+                <span className="font-mono">-${getDiscountAmount().toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between text-base font-bold text-heading pt-1 border-t border-surface2">
@@ -514,17 +522,46 @@ export const PosPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Descuento general */}
+          {/* Descuento general: por monto fijo o por porcentaje del subtotal */}
           <div>
-            <label className="block text-xs font-semibold text-body mb-1">Descuento General ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={discount || ''}
-              onChange={(e) => setDiscount(parseFloat(e.target.value || '0'))}
-              placeholder="0.00"
-              className="w-full bg-surface2 border border-surface3 rounded-lg px-3 py-2 text-sm text-heading focus:outline-none focus:border-teal-500 font-mono"
-            />
+            <label className="block text-xs font-semibold text-body mb-1">Descuento General</label>
+            <div className="flex items-center gap-2">
+              <div className="flex bg-surface2 p-1 rounded-lg shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('AMOUNT')}
+                  className={`px-2.5 py-1.5 rounded text-xs font-semibold transition ${
+                    discountType === 'AMOUNT' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                  }`}
+                >
+                  $
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('PERCENTAGE')}
+                  className={`px-2.5 py-1.5 rounded text-xs font-semibold transition ${
+                    discountType === 'PERCENTAGE' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                  }`}
+                >
+                  %
+                </button>
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max={discountType === 'PERCENTAGE' ? 100 : undefined}
+                value={discountValue || ''}
+                onChange={(e) => setDiscountValue(parseFloat(e.target.value || '0'))}
+                placeholder={discountType === 'PERCENTAGE' ? '0-100' : '0.00'}
+                className="flex-1 bg-surface2 border border-surface3 rounded-lg px-3 py-2 text-sm text-heading focus:outline-none focus:border-teal-500 font-mono"
+              />
+            </div>
+            {getDiscountAmount() > 0 && (
+              <p className="text-[11px] text-secondary mt-1">
+                Equivale a <span className="text-teal-400 font-mono font-bold">-${getDiscountAmount().toFixed(2)}</span> sobre el subtotal.
+              </p>
+            )}
           </div>
 
           {/* Medios de Pago Combinados / Pagos Parciales */}
@@ -542,37 +579,68 @@ export const PosPage: React.FC = () => {
             </div>
 
             {payments.map((p, idx) => (
-              <div key={idx} className="flex items-center space-x-2 bg-surface2/60 p-2.5 rounded-lg border border-surface3">
-                <select
-                  value={p.paymentMethod}
-                  onChange={(e) => handleUpdatePayment(idx, 'paymentMethod', e.target.value)}
-                  className="bg-surface border border-surface3 rounded-lg px-3 py-1.5 text-xs text-heading focus:outline-none"
-                >
-                  <option value="CASH">Efectivo</option>
-                  <option value="DEBIT">Tarjeta Débito</option>
-                  <option value="CREDIT">Tarjeta Crédito</option>
-                  <option value="TRANSFER">Transferencia</option>
-                  <option value="MERCADO_PAGO">Mercado Pago</option>
-                  <option value="CURRENT_ACCOUNT">Cuenta Corriente</option>
-                </select>
-
-                <input
-                  type="number"
-                  step="0.01"
-                  value={p.amount || ''}
-                  onChange={(e) => handleUpdatePayment(idx, 'amount', parseFloat(e.target.value || '0'))}
-                  placeholder="Monto"
-                  className="flex-1 bg-surface border border-surface3 rounded-lg px-3 py-1.5 text-xs text-heading font-mono focus:outline-none"
-                />
-
-                {payments.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePayment(idx)}
-                    className="p-1 text-muted hover:text-red-400"
+              <div key={idx} className="bg-surface2/60 p-2.5 rounded-lg border border-surface3 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={p.paymentMethod}
+                    onChange={(e) => handleUpdatePayment(idx, 'paymentMethod', e.target.value)}
+                    className="bg-surface border border-surface3 rounded-lg px-3 py-1.5 text-xs text-heading focus:outline-none"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <option value="CASH">Efectivo</option>
+                    <option value="DEBIT">Tarjeta Débito</option>
+                    <option value="CREDIT">Tarjeta Crédito</option>
+                    <option value="TRANSFER">Transferencia</option>
+                    <option value="MERCADO_PAGO">Mercado Pago</option>
+                    <option value="CURRENT_ACCOUNT">Cuenta Corriente</option>
+                  </select>
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={p.amount || ''}
+                    onChange={(e) => handleUpdatePayment(idx, 'amount', parseFloat(e.target.value || '0'))}
+                    placeholder="Monto"
+                    className="flex-1 bg-surface border border-surface3 rounded-lg px-3 py-1.5 text-xs text-heading font-mono focus:outline-none"
+                  />
+
+                  {payments.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePayment(idx)}
+                      className="p-1 text-muted hover:text-red-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Datos de tarjeta: marca (débito y crédito) + cuotas (solo crédito). Es
+                    informativo — no recalcula recargo sobre el monto ingresado arriba. */}
+                {(p.paymentMethod === 'DEBIT' || p.paymentMethod === 'CREDIT') && (
+                  <div className="flex items-center gap-2 pl-1">
+                    <select
+                      value={p.cardType || ''}
+                      onChange={(e) => handleUpdatePayment(idx, 'cardType', e.target.value || undefined)}
+                      className="flex-1 bg-surface border border-surface3 rounded-lg px-2.5 py-1.5 text-[11px] text-heading focus:outline-none"
+                    >
+                      <option value="">Marca de tarjeta...</option>
+                      {CARD_TYPES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+
+                    {p.paymentMethod === 'CREDIT' && (
+                      <select
+                        value={p.installments || 1}
+                        onChange={(e) => handleUpdatePayment(idx, 'installments', parseInt(e.target.value))}
+                        className="w-28 bg-surface border border-surface3 rounded-lg px-2.5 py-1.5 text-[11px] text-heading focus:outline-none shrink-0"
+                      >
+                        {[1, 3, 6, 9, 12, 18, 24].map((n) => (
+                          <option key={n} value={n}>{n === 1 ? '1 pago' : `${n} cuotas`}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
