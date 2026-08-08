@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { createSale, ValidationError } from '../services/salesService';
 
 const router = Router();
 
@@ -83,232 +84,22 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-// POST /api/sales (POS Sale Checkout) — usa la caja abierta de la sucursal activa
-const CARD_TYPES = ['Visa', 'Mastercard', 'American Express', 'Cabal', 'Naranja', 'Otra'];
-
+// POST /api/sales (POS Sale Checkout) — usa la caja abierta de la sucursal activa.
+// La lógica de negocio vive en services/salesService.ts (createSale), compartida con la
+// conversión de presupuestos en budgets.routes.ts.
 router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireSucursal, async (req: AuthRequest, res: Response) => {
   try {
     const { customerId, saleType, items, payments, discountType, discountValue } = req.body;
-    // items: [{ productId, quantity, unitPrice }]
+    // items: [{ productId, quantity }]
     // payments: [{ paymentMethod, amount, reference, cardType, installments }]
-    const sucursalId = req.user!.sucursalId!;
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'El carrito de ventas no puede estar vacío.' });
-    }
-
-    if (!payments || !Array.isArray(payments) || payments.length === 0) {
-      return res.status(400).json({ error: 'Debe especificar al menos un medio de pago.' });
-    }
-
-    // 1. Verify Active Cash Session for this sucursal
-    const activeSession = await prisma.cashSession.findFirst({
-      where: { status: 'OPEN', sucursalId },
+    const sale = await createSale({
+      sucursalId: req.user!.sucursalId!,
+      userId: req.user!.id,
+      customerId, saleType, items, payments, discountType, discountValue,
     });
-
-    if (!activeSession) {
-      return res.status(400).json({ error: 'No se puede registrar ventas sin una caja abierta en esta sucursal. Abra la caja primero.' });
-    }
-
-    // 2. Validate Items, Prices & Stock (en la sucursal activa)
-    let subtotal = 0;
-    const formattedItems: {
-      productId: number;
-      productCode: string;
-      productName: string;
-      quantity: number;
-      unitPrice: number;
-      subtotal: number;
-    }[] = [];
-
-    for (const item of items) {
-      const product = await prisma.product.findUnique({ where: { id: parseInt(item.productId) } });
-      if (!product || !product.active) {
-        return res.status(400).json({ error: `Producto no válido o inactivo ID ${item.productId}` });
-      }
-
-      const qty = parseFloat(item.quantity);
-      if (qty <= 0) {
-        return res.status(400).json({ error: `Cantidad inválida para producto ${product.name}` });
-      }
-
-      // El precio SIEMPRE se toma del catálogo del servidor según el tipo de venta, nunca
-      // del body del request: aceptar item.unitPrice del cliente permitía a cualquier
-      // VENDEDOR facturar productos al precio que quisiera (ej. $0.01) editando el request.
-      const unitPrice = saleType === 'WHOLESALE' ? product.wholesalePrice : product.salePrice;
-      const itemSubtotal = qty * unitPrice;
-      subtotal += itemSubtotal;
-
-      formattedItems.push({
-        productId: product.id,
-        productCode: product.code,
-        productName: product.name,
-        quantity: qty,
-        unitPrice,
-        subtotal: itemSubtotal,
-      });
-    }
-
-    // El descuento SIEMPRE se recalcula acá desde discountType/discountValue (nunca se
-    // confía en un monto final que mande el cliente): mismo criterio que el precio unitario
-    // de arriba, para que no se pueda mandar un "discount" arbitrario en el body.
-    const resolvedDiscountType = discountType === 'PERCENTAGE' ? 'PERCENTAGE' : 'AMOUNT';
-    const rawDiscountValue = parseFloat(discountValue || 0);
-    if (isNaN(rawDiscountValue) || rawDiscountValue < 0) {
-      return res.status(400).json({ error: 'El descuento ingresado no es válido.' });
-    }
-    if (resolvedDiscountType === 'PERCENTAGE' && rawDiscountValue > 100) {
-      return res.status(400).json({ error: 'El descuento por porcentaje no puede superar el 100%.' });
-    }
-
-    const discountAmount = resolvedDiscountType === 'PERCENTAGE'
-      ? Math.round(subtotal * (rawDiscountValue / 100) * 100) / 100
-      : rawDiscountValue;
-
-    if (discountAmount < 0 || discountAmount > subtotal) {
-      return res.status(400).json({ error: 'El descuento debe ser un monto válido entre $0 y el subtotal de la venta.' });
-    }
-    const total = subtotal - discountAmount;
-
-    // Validate payment sum matches total
-    const paymentSum = payments.reduce((acc, p) => acc + parseFloat(p.amount), 0);
-    if (Math.abs(paymentSum - total) > 0.05) {
-      return res.status(400).json({
-        error: `El total de pagos ($${paymentSum.toFixed(2)}) no coincide con el total de la venta ($${total.toFixed(2)}).`,
-      });
-    }
-
-    // Validate card payments (cardType/installments son solo informativos, pero se
-    // valida su forma para no guardar basura en la base).
-    for (const p of payments) {
-      if (p.paymentMethod === 'CREDIT' || p.paymentMethod === 'DEBIT') {
-        if (p.cardType && !CARD_TYPES.includes(p.cardType)) {
-          return res.status(400).json({ error: `Tipo de tarjeta inválido: ${p.cardType}` });
-        }
-      }
-      if (p.paymentMethod === 'CREDIT' && p.installments !== undefined && p.installments !== null && p.installments !== '') {
-        const inst = parseInt(p.installments);
-        if (isNaN(inst) || inst < 1 || inst > 24) {
-          return res.status(400).json({ error: 'La cantidad de cuotas debe ser un número entre 1 y 24.' });
-        }
-      }
-    }
-
-    // Generate Sale Number
-    const count = await prisma.sale.count();
-    const saleNumber = `VTA-${(count + 1).toString().padStart(8, '0')}`;
-
-    // Execute Transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create Sale
-      const sale = await tx.sale.create({
-        data: {
-          saleNumber,
-          sucursalId,
-          sessionId: activeSession.id,
-          customerId: customerId ? parseInt(customerId) : null,
-          saleType: saleType || 'RETAIL',
-          subtotal,
-          discountType: resolvedDiscountType,
-          discountValue: rawDiscountValue,
-          discount: discountAmount,
-          total,
-          status: 'COMPLETED',
-          userId: req.user!.id,
-          items: {
-            create: formattedItems,
-          },
-          payments: {
-            create: payments.map((p) => ({
-              paymentMethod: p.paymentMethod,
-              amount: parseFloat(p.amount),
-              reference: p.reference || null,
-              cardType: (p.paymentMethod === 'CREDIT' || p.paymentMethod === 'DEBIT') && p.cardType ? p.cardType : null,
-              installments: p.paymentMethod === 'CREDIT' && p.installments ? parseInt(p.installments) : null,
-            })),
-          },
-        },
-        include: { items: true, payments: true, customer: true },
-      });
-
-      // Update Stock (de la sucursal) for each product
-      for (const item of formattedItems) {
-        const stockRow = await tx.productStock.upsert({
-          where: { productId_sucursalId: { productId: item.productId, sucursalId } },
-          update: {},
-          create: { productId: item.productId, sucursalId, currentStock: 0, minStock: 5 },
-        });
-
-        const newStock = stockRow.currentStock - item.quantity;
-        await tx.productStock.update({
-          where: { productId_sucursalId: { productId: item.productId, sucursalId } },
-          data: { currentStock: newStock },
-        });
-
-        await tx.stockMovement.create({
-          data: {
-            productId: item.productId,
-            sucursalId,
-            movementType: 'SALE',
-            quantity: item.quantity,
-            previousStock: stockRow.currentStock,
-            newStock,
-            reason: `Venta #${sale.saleNumber}`,
-            userId: req.user!.id,
-          },
-        });
-      }
-
-      // Record payments in Cash Register and Customer Account
-      for (const p of payments) {
-        const pAmount = parseFloat(p.amount);
-        const pMethod = p.paymentMethod;
-
-        if (pMethod === 'CURRENT_ACCOUNT') {
-          if (!customerId) {
-            throw new Error('Para cobrar a Cuenta Corriente debe seleccionar un cliente.');
-          }
-
-          const customer = await tx.customer.findUnique({ where: { id: parseInt(customerId) } });
-          if (!customer) throw new Error('Cliente no encontrado.');
-
-          const newCustomerBalance = customer.balance + pAmount;
-          await tx.customer.update({
-            where: { id: customer.id },
-            data: { balance: newCustomerBalance },
-          });
-
-          await tx.customerAccountMovement.create({
-            data: {
-              customerId: customer.id,
-              saleId: sale.id,
-              type: 'CHARGE_DEBT',
-              amount: pAmount,
-              balanceAfter: newCustomerBalance,
-              paymentMethod: 'CURRENT_ACCOUNT',
-              notes: `Cargo por venta #${sale.saleNumber}`,
-            },
-          });
-        }
-
-        // Register Cash Movement
-        await tx.cashMovement.create({
-          data: {
-            sessionId: activeSession.id,
-            type: 'SALE',
-            paymentMethod: pMethod,
-            amount: pAmount,
-            notes: `Venta #${sale.saleNumber}`,
-            userId: req.user!.id,
-          },
-        });
-      }
-
-      return sale;
-    });
-
-    return res.status(201).json(result);
+    return res.status(201).json(sale);
   } catch (error: any) {
+    if (error instanceof ValidationError) return res.status(400).json({ error: error.message });
     return res.status(500).json({ error: error.message });
   }
 });

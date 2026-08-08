@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import { prisma } from '../db/prisma';
-import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { createSale, ValidationError } from '../services/salesService';
 
 const router = Router();
 
@@ -12,6 +13,7 @@ router.get('/', authenticateToken, async (req, res) => {
       include: {
         customer: { select: { id: true, name: true, cuitDni: true, phone: true } },
         items: true,
+        convertedSale: { select: { id: true, saleNumber: true, total: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -30,6 +32,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       include: {
         customer: true,
         items: { include: { product: true } },
+        convertedSale: { select: { id: true, saleNumber: true, total: true } },
       },
     });
     if (!budget) return res.status(404).json({ error: 'Presupuesto no encontrado.' });
@@ -104,30 +107,67 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (r
   }
 });
 
-// POST /api/budgets/:id/convert (Convert budget directly to sale items for POS)
-router.post('/:id/convert', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (req: AuthRequest, res: Response) => {
+// POST /api/budgets/:id/approve — el cliente confirmó que quiere el presupuesto. Es un
+// paso opcional antes de convertir (deja constancia de la aprobación), no bloquea la
+// conversión: un DRAFT también se puede convertir directo si el vendedor ya cerró la venta
+// en el momento.
+router.post('/:id/approve', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const budget = await prisma.budget.findUnique({
-      where: { id },
-      include: { items: true },
-    });
+    const budget = await prisma.budget.findUnique({ where: { id } });
+    if (!budget) return res.status(404).json({ error: 'Presupuesto no encontrado.' });
+    if (budget.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'Solo se puede aprobar un presupuesto que está en borrador.' });
+    }
 
+    const updated = await prisma.budget.update({ where: { id }, data: { status: 'APPROVED' } });
+    return res.json(updated);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/budgets/:id/convert — pase real a venta: cobra con los medios de pago que
+// indique el usuario (antes esto solo cambiaba el estado del presupuesto sin registrar
+// ninguna operación real: no tocaba stock, caja ni cuenta corriente). Usa la misma
+// lógica que el checkout del POS (createSale), en la sucursal y caja activas de quien
+// convierte — el precio se recalcula del catálogo al momento de la conversión, no se
+// hereda ciegamente el precio cotizado en el presupuesto (ver salesService.ts).
+router.post('/:id/convert', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireSucursal, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { payments, discountType, discountValue, saleType } = req.body;
+
+    const budget = await prisma.budget.findUnique({ where: { id }, include: { items: true } });
     if (!budget) return res.status(404).json({ error: 'Presupuesto no encontrado.' });
     if (budget.status === 'CONVERTED') {
       return res.status(400).json({ error: 'Este presupuesto ya fue convertido en venta.' });
     }
+    if (budget.status === 'EXPIRED') {
+      return res.status(400).json({ error: 'Este presupuesto está vencido, no se puede convertir en venta.' });
+    }
 
-    await prisma.budget.update({
+    const sale = await createSale({
+      sucursalId: req.user!.sucursalId!,
+      userId: req.user!.id,
+      customerId: budget.customerId,
+      saleType: saleType || 'RETAIL',
+      items: budget.items.map((it) => ({ productId: it.productId, quantity: it.quantity })),
+      payments,
+      discountType,
+      discountValue,
+      budgetId: budget.id,
+    });
+
+    const updatedBudget = await prisma.budget.update({
       where: { id },
-      data: { status: 'CONVERTED' },
+      data: { status: 'CONVERTED', convertedSaleId: sale.id },
+      include: { items: true, convertedSale: { select: { id: true, saleNumber: true, total: true } } },
     });
 
-    return res.json({
-      message: 'Presupuesto convertido correctamente.',
-      budget,
-    });
+    return res.json({ budget: updatedBudget, sale });
   } catch (error: any) {
+    if (error instanceof ValidationError) return res.status(400).json({ error: error.message });
     return res.status(500).json({ error: error.message });
   }
 });

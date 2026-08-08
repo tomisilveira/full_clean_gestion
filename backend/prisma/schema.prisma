@@ -238,19 +238,23 @@ model CustomerAccountMovement {
 }
 
 model Budget {
-  id           Int          @id @default(autoincrement())
-  budgetNumber String       @unique
-  customerId   Int?
-  customer     Customer?    @relation(fields: [customerId], references: [id])
-  customerName String
-  sucursalId   Int?
-  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id])
-  total        Float
-  status       String       @default("DRAFT") // DRAFT, APPROVED, CONVERTED, EXPIRED
-  validUntil   DateTime
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  items        BudgetItem[]
+  id              Int          @id @default(autoincrement())
+  budgetNumber    String       @unique
+  customerId      Int?
+  customer        Customer?    @relation(fields: [customerId], references: [id])
+  customerName    String
+  sucursalId      Int?
+  sucursal        Sucursal?    @relation(fields: [sucursalId], references: [id])
+  total           Float
+  status          String       @default("DRAFT") // DRAFT, APPROVED, CONVERTED, EXPIRED
+  validUntil      DateTime
+  // Venta real generada al convertir el presupuesto (con cobro efectivo, no solo un
+  // cambio de estado). Null hasta que se convierte.
+  convertedSaleId Int?         @unique
+  convertedSale   Sale?        @relation(fields: [convertedSaleId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  items           BudgetItem[]
 }
 
 model BudgetItem {
@@ -324,6 +328,9 @@ model Sale {
   items       SaleItem[]
   payments    Payment[]
   invoiceARCA InvoiceARCA?
+  // Presupuesto del que se originó esta venta, si se generó por "Convertir a Venta"
+  // (ver Budget.convertedSaleId). Null si la venta se cargó directo desde el POS.
+  originBudget Budget?
 }
 
 model SaleItem {
