@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { Modal } from '../components/Modal';
 import { openBudgetPdf, openTicketPreview } from '../utils/tickets';
 import { toastSuccess } from '../store/useToastStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { CARD_TYPES } from '../store/usePosStore';
+import { CARD_TYPES, usePosStore } from '../store/usePosStore';
 import {
   FileText, Plus, FileDown, CheckCircle, ArrowRight, Trash2,
-  AlertTriangle, Printer, CreditCard, ThumbsUp,
+  AlertTriangle, Printer, CreditCard, ThumbsUp, ShoppingCart,
 } from 'lucide-react';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -27,12 +28,9 @@ const STATUS_CLASS: Record<string, string> = {
 
 export const BudgetsPage: React.FC = () => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
+  const setPosMode = usePosStore((s) => s.setMode);
   const canManage = user?.role === 'ADMIN' || user?.role === 'VENDEDOR';
-
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  const [customerName, setCustomerName] = useState('Consumidor Final');
-  const [budgetItems, setBudgetItems] = useState<any[]>([]);
 
   // Pase a venta (conversión)
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
@@ -50,11 +48,6 @@ export const BudgetsPage: React.FC = () => {
     queryFn: async () => (await api.get('/budgets')).data,
   });
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers'],
-    queryFn: async () => (await api.get('/customers')).data,
-  });
-
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
     queryFn: async () => (await api.get('/products')).data,
@@ -65,24 +58,6 @@ export const BudgetsPage: React.FC = () => {
     queryFn: async () => (await api.get('/cash/current')).data,
   });
   const activeCashSession = cashData?.activeSession;
-
-  const createBudgetMutation = useMutation({
-    mutationFn: async () => {
-      return (
-        await api.post('/budgets', {
-          customerId: selectedCustomerId ? parseInt(selectedCustomerId) : null,
-          customerName,
-          items: budgetItems,
-        })
-      ).data;
-    },
-    onSuccess: () => {
-      setIsCreateModalOpen(false);
-      setBudgetItems([]);
-      queryClient.invalidateQueries({ queryKey: ['budgets'] });
-      toastSuccess('Presupuesto creado correctamente.');
-    },
-  });
 
   const approveBudgetMutation = useMutation({
     mutationFn: async (budgetId: number) => (await api.post(`/budgets/${budgetId}/approve`)).data,
@@ -166,19 +141,9 @@ export const BudgetsPage: React.FC = () => {
     },
   });
 
-  const handleAddItem = (productId: number) => {
-    const prod = products.find((p: any) => p.id === productId);
-    if (!prod) return;
-
-    setBudgetItems([
-      ...budgetItems,
-      {
-        productId: prod.id,
-        quantity: 1,
-        unitPrice: prod.salePrice,
-        name: prod.name,
-      },
-    ]);
+  const goCreateInPos = () => {
+    setPosMode('BUDGET');
+    navigate('/');
   };
 
   return (
@@ -195,14 +160,11 @@ export const BudgetsPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => {
-            setBudgetItems([]);
-            setIsCreateModalOpen(true);
-          }}
-          className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-teal-500/20 transition flex items-center space-x-2"
+          onClick={goCreateInPos}
+          className="px-4 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-violet-500/20 transition flex items-center space-x-2"
         >
-          <Plus className="w-4 h-4" />
-          <span>Nuevo Presupuesto</span>
+          <ShoppingCart className="w-4 h-4" />
+          <span>Nuevo Presupuesto (Punto de Venta)</span>
         </button>
       </div>
 
@@ -236,8 +198,10 @@ export const BudgetsPage: React.FC = () => {
                 </tr>
               ) : budgets.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted">
-                    No hay presupuestos creados.
+                  <td colSpan={7} className="p-10 text-center text-muted">
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-faint stroke-[1.5]" />
+                    <p>No hay presupuestos creados todavía.</p>
+                    <p className="text-xs mt-1">Armalos desde el Punto de Venta, en modo "Presupuesto".</p>
                   </td>
                 </tr>
               ) : (
@@ -299,103 +263,6 @@ export const BudgetsPage: React.FC = () => {
           </table>
         </div>
       </div>
-
-      {/* CREATE BUDGET MODAL */}
-      <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Nuevo Presupuesto" maxWidth="lg">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createBudgetMutation.mutate();
-          }}
-          className="space-y-4"
-        >
-          <div>
-            <label className="block text-xs font-semibold text-body mb-1">Cliente</label>
-            <select
-              value={selectedCustomerId}
-              onChange={(e) => {
-                setSelectedCustomerId(e.target.value);
-                const cust = customers.find((c: any) => c.id === parseInt(e.target.value));
-                if (cust) setCustomerName(cust.name);
-              }}
-              className="w-full bg-surface2 border border-surface3 rounded-lg px-3 py-2 text-sm text-heading focus:outline-none focus:border-teal-500"
-            >
-              <option value="">Consumidor Final</option>
-              {customers.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-body mb-1">Agregar Producto</label>
-            <select
-              onChange={(e) => {
-                if (e.target.value) {
-                  handleAddItem(parseInt(e.target.value));
-                  e.target.value = '';
-                }
-              }}
-              className="w-full bg-surface2 border border-surface3 rounded-lg px-3 py-2 text-sm text-heading focus:outline-none focus:border-teal-500"
-            >
-              <option value="">-- Seleccionar producto --</option>
-              {products.map((p: any) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} (${p.salePrice.toFixed(2)})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Budget items list */}
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {budgetItems.map((item, idx) => (
-              <div key={idx} className="flex items-center space-x-3 bg-surface2/60 p-2.5 rounded-lg border border-surface3 text-xs">
-                <div className="flex-1 font-bold text-heading">{item.name}</div>
-                <div className="w-20">
-                  <span className="text-[10px] text-secondary block">Cant.</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={item.quantity}
-                    onChange={(e) => {
-                      const updated = [...budgetItems];
-                      updated[idx].quantity = parseFloat(e.target.value || '0');
-                      setBudgetItems(updated);
-                    }}
-                    className="w-full bg-surface border border-surface3 rounded px-2 py-1 font-mono text-heading"
-                  />
-                </div>
-                <div className="w-24">
-                  <span className="text-[10px] text-secondary block">Precio Unit.</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={item.unitPrice}
-                    onChange={(e) => {
-                      const updated = [...budgetItems];
-                      updated[idx].unitPrice = parseFloat(e.target.value || '0');
-                      setBudgetItems(updated);
-                    }}
-                    className="w-full bg-surface border border-surface3 rounded px-2 py-1 font-mono text-heading"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-3 border-t border-surface2">
-            <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 rounded-lg bg-surface2 text-body text-sm">
-              Cancelar
-            </button>
-            <button type="submit" disabled={createBudgetMutation.isPending || budgetItems.length === 0} className="px-5 py-2 rounded-lg bg-teal-600 text-white font-bold text-sm">
-              Crear Presupuesto
-            </button>
-          </div>
-        </form>
-      </Modal>
 
       {/* CONVERT TO SALE (CHECKOUT) MODAL */}
       {convertingBudget && (

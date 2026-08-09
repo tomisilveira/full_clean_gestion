@@ -21,8 +21,10 @@ export interface PaymentItem {
 }
 
 export type DiscountType = 'AMOUNT' | 'PERCENTAGE';
+export type PosMode = 'SALE' | 'BUDGET';
 
 interface PosState {
+  mode: PosMode;
   cart: CartItem[];
   selectedCustomerId: number | null;
   selectedCustomerName: string;
@@ -32,6 +34,7 @@ interface PosState {
   payments: PaymentItem[];
 
   // Actions
+  setMode: (mode: PosMode) => void;
   addItem: (product: any, quantity?: number) => void;
   updateQuantity: (productId: number, quantity: number) => void;
   removeItem: (productId: number) => void;
@@ -49,6 +52,7 @@ interface PosState {
 }
 
 export const usePosStore = create<PosState>((set, get) => ({
+  mode: 'SALE',
   cart: [],
   selectedCustomerId: null,
   selectedCustomerName: 'Consumidor Final',
@@ -56,6 +60,8 @@ export const usePosStore = create<PosState>((set, get) => ({
   discountType: 'AMOUNT',
   discountValue: 0,
   payments: [{ paymentMethod: 'CASH', amount: 0 }],
+
+  setMode: (mode) => set({ mode }),
 
   addItem: (product, quantity = 1) => {
     const { cart, saleType } = get();

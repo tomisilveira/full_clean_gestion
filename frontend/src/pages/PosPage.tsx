@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { usePosStore, CARD_TYPES } from '../store/usePosStore';
 import { QuickBarcodeModal } from '../components/QuickBarcodeModal';
@@ -19,15 +20,21 @@ import {
   AlertTriangle,
   User,
   Tag,
+  FileText,
+  ClipboardCheck,
 } from 'lucide-react';
 
 export const PosPage: React.FC = () => {
+  const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
   const [quickBarcode, setQuickBarcode] = useState('');
   const [isQuickModalOpen, setIsQuickModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [createdSale, setCreatedSale] = useState<any>(null);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetValidDays, setBudgetValidDays] = useState('15');
+  const [createdBudget, setCreatedBudget] = useState<any>(null);
   // En mobile el carrito no cabe al lado de la lista de productos: pasa a ser una hoja
   // a pantalla completa que se abre desde una barra flotante inferior (ver más abajo).
   // En desktop (md+) esta variable no se usa: el carrito siempre está visible al costado.
@@ -37,6 +44,8 @@ export const PosPage: React.FC = () => {
   const queryClient = useQueryClient();
 
   const {
+    mode,
+    setMode,
     cart,
     addItem,
     updateQuantity,
@@ -171,6 +180,29 @@ export const PosPage: React.FC = () => {
     },
   });
 
+  // Guardar Presupuesto: no pide caja ni medio de pago (eso se define recién cuando se
+  // convierte, en la pestaña Presupuestos) — solo deja constancia de los ítems y el precio
+  // cotizado al momento de armarlo.
+  const saveBudgetMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post('/budgets', {
+        customerId: selectedCustomerId,
+        customerName: selectedCustomerName,
+        items: cart.map((item) => ({ productId: item.productId, quantity: item.quantity, unitPrice: item.unitPrice })),
+        validDays: parseInt(budgetValidDays || '15'),
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setCreatedBudget(data);
+      setIsBudgetModalOpen(false);
+      setMobileCartOpen(false);
+      clearCart();
+      queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      toastSuccess('Presupuesto guardado correctamente.');
+    },
+  });
+
   const totalAmount = getTotal();
 
   // Split payment handler
@@ -192,6 +224,11 @@ export const PosPage: React.FC = () => {
   const openCheckoutModal = () => {
     setPayments([{ paymentMethod: 'CASH', amount: totalAmount }]);
     setIsCheckoutModalOpen(true);
+  };
+
+  const openBudgetModal = () => {
+    setBudgetValidDays('15');
+    setIsBudgetModalOpen(true);
   };
 
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -333,10 +370,43 @@ export const PosPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Modo: Venta (cobra y descuenta stock ahora) vs Presupuesto (solo cotiza, sin
+            caja ni pago — se cobra después desde la pestaña Presupuestos). */}
+        <div className="p-3 border-b border-surface2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('SALE')}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition ${
+                mode === 'SALE'
+                  ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/20'
+                  : 'bg-surface2 text-secondary hover:text-heading hover:bg-surface3'
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              Venta
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('BUDGET')}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition ${
+                mode === 'BUDGET'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20'
+                  : 'bg-surface2 text-secondary hover:text-heading hover:bg-surface3'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              Presupuesto
+            </button>
+          </div>
+        </div>
+
         {/* Customer & Sale Type Selection Header */}
         <div className="p-4 border-b border-surface2 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-secondary">Punto de Venta</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-secondary">
+              {mode === 'BUDGET' ? 'Armando Presupuesto' : 'Punto de Venta'}
+            </span>
             {/* Sale Type Toggle */}
             <div className="flex bg-surface2 p-1 rounded-lg">
               <button
@@ -437,7 +507,8 @@ export const PosPage: React.FC = () => {
               <span>Subtotal:</span>
               <span className="font-mono text-heading">${getSubtotal().toFixed(2)}</span>
             </div>
-            {getDiscountAmount() > 0 && (
+            {/* El descuento se define recién al convertir el presupuesto en venta, no acá */}
+            {mode === 'SALE' && getDiscountAmount() > 0 && (
               <div className="flex justify-between text-teal-400">
                 <span>Descuento{discountType === 'PERCENTAGE' ? ` (${discountValue}%)` : ''}:</span>
                 <span className="font-mono">-${getDiscountAmount().toFixed(2)}</span>
@@ -445,11 +516,13 @@ export const PosPage: React.FC = () => {
             )}
             <div className="flex justify-between text-base font-bold text-heading pt-1 border-t border-surface2">
               <span>TOTAL:</span>
-              <span className="font-mono text-teal-400 text-lg">${totalAmount.toFixed(2)}</span>
+              <span className={`font-mono text-lg ${mode === 'BUDGET' ? 'text-violet-400' : 'text-teal-400'}`}>
+                ${(mode === 'BUDGET' ? getSubtotal() : totalAmount).toFixed(2)}
+              </span>
             </div>
           </div>
 
-          {!activeCashSession && (
+          {mode === 'SALE' && !activeCashSession && (
             <div className="p-2.5 bg-amber-950/60 border border-amber-800 text-amber-300 text-xs rounded-lg flex items-center space-x-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>Debe abrir la caja antes de registrar ventas.</span>
@@ -465,14 +538,25 @@ export const PosPage: React.FC = () => {
               Vaciar
             </button>
 
-            <button
-              onClick={openCheckoutModal}
-              disabled={cart.length === 0 || !activeCashSession}
-              className="py-2.5 px-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-500/20 transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>COBRAR</span>
-            </button>
+            {mode === 'SALE' ? (
+              <button
+                onClick={openCheckoutModal}
+                disabled={cart.length === 0 || !activeCashSession}
+                className="py-2.5 px-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-500/20 transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>COBRAR</span>
+              </button>
+            ) : (
+              <button
+                onClick={openBudgetModal}
+                disabled={cart.length === 0}
+                className="py-2.5 px-3 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-violet-500/20 transition flex items-center justify-center space-x-1.5 disabled:opacity-50"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>GUARDAR PRESUPUESTO</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -482,13 +566,15 @@ export const PosPage: React.FC = () => {
       {!mobileCartOpen && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-teal-600 hover:bg-teal-500 text-white flex items-center justify-between px-4 py-3.5 shadow-lg shadow-black/20"
+          className={`md:hidden fixed bottom-0 left-0 right-0 z-30 text-white flex items-center justify-between px-4 py-3.5 shadow-lg shadow-black/20 ${
+            mode === 'BUDGET' ? 'bg-violet-600 hover:bg-violet-500' : 'bg-teal-600 hover:bg-teal-500'
+          }`}
         >
           <span className="flex items-center gap-2 text-sm font-bold">
-            <ShoppingCart className="w-4 h-4" />
+            {mode === 'BUDGET' ? <FileText className="w-4 h-4" /> : <ShoppingCart className="w-4 h-4" />}
             {cartItemCount > 0 ? `${cartItemCount} ${cartItemCount === 1 ? 'ítem' : 'ítems'}` : 'Carrito vacío'}
           </span>
-          <span className="font-mono font-bold text-sm">${totalAmount.toFixed(2)} · Ver carrito</span>
+          <span className="font-mono font-bold text-sm">${(mode === 'BUDGET' ? getSubtotal() : totalAmount).toFixed(2)} · Ver carrito</span>
         </button>
       )}
 
@@ -699,6 +785,89 @@ export const PosPage: React.FC = () => {
                 className="w-full py-2.5 bg-surface2 hover:bg-surface3 text-body text-sm font-semibold rounded-xl transition"
               >
                 Nueva Venta
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* SAVE BUDGET (VALID-UNTIL) MODAL */}
+      <Modal isOpen={isBudgetModalOpen} onClose={() => setIsBudgetModalOpen(false)} title="📋 Guardar Presupuesto" maxWidth="sm">
+        <div className="space-y-5">
+          <div className="p-4 bg-app border border-surface2 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-xs text-secondary">Cliente:</div>
+              <div className="text-sm font-bold text-heading">{selectedCustomerName}</div>
+              <div className="text-xs text-secondary mt-1">{cartItemCount} ítem(s)</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-secondary">Total Cotizado:</div>
+              <div className="text-2xl font-bold font-mono text-violet-400">${getSubtotal().toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-body mb-1">Válido por (días)</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={budgetValidDays}
+              onChange={(e) => setBudgetValidDays(e.target.value)}
+              className="w-full bg-surface2 border border-surface3 rounded-lg px-3 py-2 text-sm text-heading font-mono focus:outline-none focus:border-violet-500"
+            />
+          </div>
+
+          <p className="text-[11px] text-secondary">
+            Esto no cobra ni descuenta stock: solo deja el presupuesto guardado en la pestaña <b>Presupuestos</b>, donde
+            se puede aprobar y convertir en venta (con medio de pago) cuando el cliente lo confirme.
+          </p>
+
+          <div className="flex justify-end space-x-3 pt-4 border-t border-surface2">
+            <button type="button" onClick={() => setIsBudgetModalOpen(false)} className="px-4 py-2 rounded-lg bg-surface2 hover:bg-surface3 text-body text-sm font-medium transition">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => saveBudgetMutation.mutate()}
+              disabled={saveBudgetMutation.isPending}
+              className="px-6 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold shadow-lg shadow-violet-500/20 transition disabled:opacity-50 flex items-center gap-2"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              {saveBudgetMutation.isPending ? 'Guardando...' : 'Guardar Presupuesto'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* BUDGET SUCCESS MODAL */}
+      {createdBudget && (
+        <Modal isOpen={Boolean(createdBudget)} onClose={() => setCreatedBudget(null)} title="🎉 Presupuesto Guardado" maxWidth="md">
+          <div className="text-center space-y-4 py-2">
+            <div className="w-12 h-12 bg-violet-950 border border-violet-800 text-violet-400 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle className="w-6 h-6" />
+            </div>
+
+            <div>
+              <div className="text-lg font-bold text-heading">Presupuesto {createdBudget.budgetNumber}</div>
+              <div className="text-2xl font-bold font-mono text-violet-400 mt-1">${createdBudget.total.toFixed(2)}</div>
+            </div>
+
+            <div className="pt-4 flex flex-col space-y-2">
+              <button
+                onClick={() => navigate('/budgets')}
+                className="w-full py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm rounded-xl transition flex items-center justify-center space-x-2 shadow-lg shadow-violet-500/20"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Ver en Presupuestos</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCreatedBudget(null)}
+                className="w-full py-2.5 bg-surface2 hover:bg-surface3 text-body text-sm font-semibold rounded-xl transition"
+              >
+                Nuevo Presupuesto
               </button>
             </div>
           </div>
