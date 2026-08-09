@@ -12,6 +12,7 @@ import { CashPage } from './pages/CashPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { SuppliersPage } from './pages/SuppliersPage';
 import { BudgetsPage } from './pages/BudgetsPage';
+import { ManualInvoicesPage } from './pages/ManualInvoicesPage';
 import { SalesPage } from './pages/SalesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ConfigPage } from './pages/ConfigPage';
@@ -116,6 +117,15 @@ export const App: React.FC = () => {
         element={
           <ProtectedLayout>
             <BudgetsPage />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/manual-invoices"
+        element={
+          <ProtectedLayout allowedRoles={['ADMIN']}>
+            <ManualInvoicesPage />
           </ProtectedLayout>
         }
       />

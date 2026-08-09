@@ -44,6 +44,7 @@ model Sucursal {
   sales                 Sale[]
   purchases             Purchase[]
   budgets               Budget[]
+  manualInvoices        ManualInvoice[]
 }
 
 model User {
@@ -61,6 +62,7 @@ model User {
   purchases      Purchase[]
   cashMovements  CashMovement[]
   sales          Sale[]
+  manualInvoices ManualInvoice[]
   openedSessions CashSession[]  @relation("OpenedBy")
   closedSessions CashSession[]  @relation("ClosedBy")
 }
@@ -221,6 +223,7 @@ model Customer {
 
   sales            Sale[]
   budgets          Budget[]
+  manualInvoices   ManualInvoice[]
   accountMovements CustomerAccountMovement[]
 }
 
@@ -357,11 +360,48 @@ model Payment {
   installments  Int?    // Cantidad de cuotas - solo CREDIT. Dato informativo: no recalcula recargo sobre el total.
 }
 
+// Factura libre: comprobante ARCA real para una operación que no pasa por el catálogo de
+// productos ni por stock/caja (ej. algo que la empresa vende por fuera de este sistema).
+// Se factura por texto libre a propósito — items y montos totalmente independientes de
+// cualquier Sale o Budget existente, para no poder usarse nunca para "reemplazar" o
+// enmascarar una operación que sí está cargada acá (ver discusión en el chat: el sistema
+// no debe permitir facturar una venta real de este catálogo con otra descripción).
+model ManualInvoice {
+  id           Int                 @id @default(autoincrement())
+  customerId   Int?
+  customer     Customer?           @relation(fields: [customerId], references: [id])
+  customerName String
+  sucursalId   Int
+  sucursal     Sucursal            @relation(fields: [sucursalId], references: [id])
+  subtotal     Float
+  total        Float
+  notes        String?
+  userId       Int
+  user         User                @relation(fields: [userId], references: [id])
+  createdAt    DateTime            @default(now())
+  items        ManualInvoiceItem[]
+  invoiceARCA  InvoiceARCA?
+}
+
+model ManualInvoiceItem {
+  id            Int           @id @default(autoincrement())
+  invoiceId     Int
+  invoice       ManualInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description   String
+  quantity      Float
+  unitPrice     Float
+  subtotal      Float
+}
+
 // El punto de venta (ptoVta) se toma de la Sucursal de la venta al momento de emitir.
+// Un comprobante ARCA cuelga o bien de una Sale (venta del POS) o bien de un ManualInvoice
+// (factura libre) — nunca de los dos ni de ninguno; se valida en la ruta que emite.
 model InvoiceARCA {
-  id           Int      @id @default(autoincrement())
-  saleId       Int      @unique
-  sale         Sale     @relation(fields: [saleId], references: [id])
+  id              Int            @id @default(autoincrement())
+  saleId          Int?           @unique
+  sale            Sale?          @relation(fields: [saleId], references: [id])
+  manualInvoiceId Int?           @unique
+  manualInvoice   ManualInvoice? @relation(fields: [manualInvoiceId], references: [id])
   cbteTipo     Int      // 1: Factura A, 6: Factura B, 11: Factura C, 3: NC A, 8: NC B, 13: NC C
   ptoVta       Int
   cbteDesde    BigInt

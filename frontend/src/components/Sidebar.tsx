@@ -11,6 +11,7 @@ import {
   BarChart3,
   Settings,
   AlertTriangle,
+  FilePlus2,
   X,
 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
@@ -49,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
     { to: '/suppliers', label: 'Proveedores y Compras', icon: Truck },
     { to: '/budgets', label: 'Presupuestos', icon: FileText },
     { to: '/sales', label: 'Ventas y Facturación', icon: Receipt },
+    ...(isAdmin ? [{ to: '/manual-invoices', label: 'Facturación Libre', icon: FilePlus2 }] : []),
     ...(canSeeReports ? [{ to: '/reports', label: 'Reportes y Métricas', icon: BarChart3 }] : []),
     ...(isAdmin ? [{ to: '/config', label: 'Configuración', icon: Settings }] : []),
   ];

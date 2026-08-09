@@ -57,3 +57,32 @@ export async function openBudgetPdf(budgetId: number) {
     win.document.close();
   }
 }
+
+// Mismo patrón que openBudgetPdf, para las facturas libres.
+export async function openManualInvoicePdf(invoiceId: number) {
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('El navegador bloqueó la ventana de la factura. Habilitá los pop-ups para este sitio.');
+    return;
+  }
+  win.document.write('Generando factura...');
+
+  try {
+    const res = await api.get(`/manual-invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+    const blobUrl = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    win.location.href = blobUrl;
+  } catch (err: any) {
+    let message = err.message;
+    if (err.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text();
+        message = JSON.parse(text)?.error || text;
+      } catch {
+        // si no se puede parsear, se usa err.message tal cual
+      }
+    }
+    win.document.open();
+    win.document.write(`<pre>Error al generar la factura: ${message}</pre>`);
+    win.document.close();
+  }
+}

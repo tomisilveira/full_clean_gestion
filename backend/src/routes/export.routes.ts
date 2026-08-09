@@ -204,7 +204,7 @@ router.get('/full', async (req, res) => {
     const [
       companyConfig, sucursales, categories, products, suppliers, purchases,
       customers, customerAccountMovements, supplierAccountMovements,
-      budgets, cashSessions, sales, invoicesARCA, users,
+      budgets, cashSessions, sales, manualInvoices, invoicesARCA, users,
     ] = await Promise.all([
       prisma.companyConfig.findMany(),
       prisma.sucursal.findMany(),
@@ -218,6 +218,7 @@ router.get('/full', async (req, res) => {
       prisma.budget.findMany({ include: { items: true } }),
       prisma.cashSession.findMany({ include: { movements: true } }),
       prisma.sale.findMany({ include: { items: true, payments: true } }),
+      prisma.manualInvoice.findMany({ include: { items: true } }),
       prisma.invoiceARCA.findMany(),
       // Nunca se incluye passwordHash en un export, aunque sea solo para ADMIN: si el
       // archivo se comparte o se pierde, no debe filtrar hashes de contraseñas.
@@ -228,7 +229,7 @@ router.get('/full', async (req, res) => {
       exportedAt: new Date().toISOString(),
       companyConfig, sucursales, categories, products, suppliers, purchases,
       customers, customerAccountMovements, supplierAccountMovements,
-      budgets, cashSessions, sales, invoicesARCA, users,
+      budgets, cashSessions, sales, manualInvoices, invoicesARCA, users,
     };
 
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
