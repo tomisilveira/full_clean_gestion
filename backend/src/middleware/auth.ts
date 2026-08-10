@@ -30,7 +30,12 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ error: 'Token inválido o expirado.' });
+      // 401 (no autenticado), no 403 (no autorizado): el interceptor de axios del
+      // frontend solo limpia la sesión vencida y redirige a /login ante un 401. Si esto
+      // devolviera 403 (como antes), quedaría indistinguible de un 403 por falta de
+      // permisos (requireRole) y el usuario se quedaba viendo el error en loop en vez de
+      // que lo mandaran a loguearse de nuevo.
+      return res.status(401).json({ error: 'Token inválido o expirado.' });
     }
     req.user = decoded as AuthRequest['user'];
     next();
