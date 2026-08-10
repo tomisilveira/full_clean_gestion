@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/useAuthStore';
-import { Lock, User as UserIcon, Sparkles } from 'lucide-react';
+import { Lock, User as UserIcon } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 export const LoginPage: React.FC = () => {
@@ -37,10 +37,7 @@ export const LoginPage: React.FC = () => {
         <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-600/20 border border-teal-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 text-teal-400 shadow-inner">
-            <Sparkles className="w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-bold text-heading">Full Clean Gestión</h1>
+          <img src="/logo-full.png" alt="Full Clean" className="w-32 h-32 object-contain mx-auto mb-2" />
           <p className="text-sm text-secondary mt-1">Sistema de Negocio de Artículos de Limpieza</p>
         </div>
 
@@ -90,11 +87,6 @@ export const LoginPage: React.FC = () => {
             {loading ? 'Ingresando...' : 'Iniciar Sesión'}
           </button>
         </form>
-
-        <div className="mt-8 pt-6 border-t border-surface2/80 text-center text-xs text-muted space-y-1">
-          <p>Credenciales de prueba iniciales:</p>
-          <p className="font-mono text-secondary">admin / admin123 • vendedor / vendedor123</p>
-        </div>
       </div>
     </div>
   );

@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useAuthStore } from '../store/useAuthStore';
 import { downloadFile } from '../utils/download';
-import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2, Download, Database } from 'lucide-react';
+import { Modal } from '../components/Modal';
+import { toastSuccess } from '../store/useToastStore';
+import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2, Download, Database, KeyRound } from 'lucide-react';
 
 type Tab = 'empresa' | 'sucursales' | 'usuarios' | 'exportar';
 
@@ -575,12 +577,25 @@ const UsuariosTab: React.FC = () => {
   const [role, setRole] = useState('VENDEDOR');
   const [sucursalIds, setSucursalIds] = useState<number[]>([]);
 
+  // Cambio de contraseña de un usuario existente
+  const [passwordTarget, setPasswordTarget] = useState<any>(null);
+  const [newPassword, setNewPassword] = useState('');
+
   const createMutation = useMutation({
     mutationFn: async () => (await api.post('/auth/users', { username, password, name, role, sucursalIds })).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usersAdmin'] });
       setCreating(false);
       setUsername(''); setPassword(''); setName(''); setRole('VENDEDOR'); setSucursalIds([]);
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async () => (await api.put(`/auth/users/${passwordTarget.id}`, { password: newPassword })).data,
+    onSuccess: () => {
+      setPasswordTarget(null);
+      setNewPassword('');
+      toastSuccess('Contraseña actualizada correctamente.');
     },
   });
 
@@ -591,16 +606,25 @@ const UsuariosTab: React.FC = () => {
   return (
     <div className="space-y-4">
       {users.map((u: any) => (
-        <div key={u.id} className="bg-surface border border-surface2 rounded-2xl p-4 flex items-center justify-between">
-          <div>
-            <div className="font-semibold text-heading">{u.name} <span className="text-muted font-mono text-xs">@{u.username}</span></div>
+        <div key={u.id} className="bg-surface border border-surface2 rounded-2xl p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold text-heading truncate">{u.name} <span className="text-muted font-mono text-xs">@{u.username}</span></div>
             <div className="text-xs text-secondary mt-0.5">
               {u.role} · {u.role === 'ADMIN' ? 'Todas las sucursales' : (u.sucursales?.map((s: any) => s.sucursal.nombre).join(', ') || 'Sin sucursal asignada')}
             </div>
           </div>
-          <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.active ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
-            {u.active ? 'Activo' : 'Inactivo'}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => { setPasswordTarget(u); setNewPassword(''); }}
+              title="Cambiar Contraseña"
+              className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-secondary hover:text-teal-400 transition"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+            <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${u.active ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
+              {u.active ? 'Activo' : 'Inactivo'}
+            </span>
+          </div>
         </div>
       ))}
 
@@ -669,6 +693,42 @@ const UsuariosTab: React.FC = () => {
         >
           <Plus className="w-4 h-4" /> Agregar Usuario
         </button>
+      )}
+
+      {/* CAMBIAR CONTRASEÑA MODAL */}
+      {passwordTarget && (
+        <Modal isOpen={Boolean(passwordTarget)} onClose={() => setPasswordTarget(null)} title={`Cambiar Contraseña: ${passwordTarget.name}`} maxWidth="sm">
+          <form
+            onSubmit={(e) => { e.preventDefault(); changePasswordMutation.mutate(); }}
+            className="space-y-4"
+          >
+            <div>
+              <label className={labelCls}>Nueva Contraseña *</label>
+              <input
+                required
+                type="password"
+                minLength={8}
+                autoFocus
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                className={inputCls}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setPasswordTarget(null)} className="px-4 py-2 text-sm text-secondary hover:text-heading">
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={changePasswordMutation.isPending || newPassword.length < 8}
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-sm font-bold rounded-lg disabled:opacity-50"
+              >
+                Actualizar Contraseña
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
