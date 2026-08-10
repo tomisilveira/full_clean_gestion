@@ -70,13 +70,18 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async 
 
 // GET /api/customers/:id/account — estado de situación completo: saldo cta. cte.,
 // movimientos de cuenta y el historial real de compras (no solo la deuda/pago).
-router.get('/:id/account', authenticateToken, async (req, res) => {
+router.get('/:id/account', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const customer = await prisma.customer.findUnique({ where: { id } });
     if (!customer) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-    const [movements, sales] = await Promise.all([
+    // Las facturas libres son ADMIN-only en el resto del sistema (ver
+    // manualInvoices.routes.ts): un VENDEDOR/SOLO_CONSULTA no debería verlas tampoco acá,
+    // así que ni se consultan si quien pide esto no es ADMIN.
+    const isAdmin = req.user?.role === 'ADMIN';
+
+    const [movements, sales, manualInvoices] = await Promise.all([
       prisma.customerAccountMovement.findMany({
         where: { customerId: id },
         orderBy: { createdAt: 'desc' },
@@ -87,6 +92,14 @@ router.get('/:id/account', authenticateToken, async (req, res) => {
         orderBy: { createdAt: 'desc' },
         take: 200,
       }),
+      isAdmin
+        ? prisma.manualInvoice.findMany({
+            where: { customerId: id },
+            include: { items: true, invoiceARCA: true },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+          })
+        : Promise.resolve([]),
     ]);
 
     const completedSales = sales.filter((s) => s.status === 'COMPLETED');
@@ -96,7 +109,7 @@ router.get('/:id/account', authenticateToken, async (req, res) => {
       currentBalance: customer.balance,
     };
 
-    return res.json({ customer, movements, sales, summary });
+    return res.json({ customer, movements, sales, manualInvoices, summary });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

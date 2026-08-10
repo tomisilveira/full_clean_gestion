@@ -3,14 +3,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { Modal } from '../components/Modal';
 import { toastSuccess } from '../store/useToastStore';
-import { Users, Plus, DollarSign, History, Search, ShoppingBag, Wallet } from 'lucide-react';
+import { useAuthStore } from '../store/useAuthStore';
+import { Users, Plus, DollarSign, History, Search, ShoppingBag, Wallet, FilePlus2 } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'ADMIN';
   const [search, setSearch] = useState('');
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [historyTab, setHistoryTab] = useState<'movements' | 'sales'>('movements');
+  const [historyTab, setHistoryTab] = useState<'movements' | 'sales' | 'manual'>('movements');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
 
   // Form states
@@ -415,6 +418,16 @@ export const CustomersPage: React.FC = () => {
               >
                 <ShoppingBag className="w-3.5 h-3.5" /> Compras Realizadas
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setHistoryTab('manual')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition ${
+                    historyTab === 'manual' ? 'bg-teal-600 text-white' : 'text-secondary hover:text-heading'
+                  }`}
+                >
+                  <FilePlus2 className="w-3.5 h-3.5" /> Facturación Libre
+                </button>
+              )}
             </div>
 
             {historyTab === 'movements' ? (
@@ -448,7 +461,7 @@ export const CustomersPage: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-            ) : (
+            ) : historyTab === 'sales' ? (
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-left text-xs text-body">
                   <thead className="bg-app text-secondary border-b border-surface2">
@@ -475,6 +488,39 @@ export const CustomersPage: React.FC = () => {
                           }`}>
                             {s.status === 'COMPLETED' ? 'COMPLETADA' : 'ANULADA'}
                           </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-96">
+                <table className="w-full text-left text-xs text-body">
+                  <thead className="bg-app text-secondary border-b border-surface2">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Notas</th>
+                      <th className="p-3 text-right">Total</th>
+                      <th className="p-3 text-center">Comprobante ARCA</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface2">
+                    {(historyData.manualInvoices || []).length === 0 ? (
+                      <tr><td colSpan={4} className="p-6 text-center text-muted">Sin facturas libres para este cliente.</td></tr>
+                    ) : historyData.manualInvoices.map((inv: any) => (
+                      <tr key={inv.id}>
+                        <td className="p-3">{new Date(inv.createdAt).toLocaleString('es-AR')}</td>
+                        <td className="p-3">{inv.notes || '-'}</td>
+                        <td className="p-3 text-right font-mono font-bold">${inv.total.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          {inv.invoiceARCA ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                              CAE {inv.invoiceARCA.cae}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-surface2 text-secondary">Sin emitir</span>
+                          )}
                         </td>
                       </tr>
                     ))}
