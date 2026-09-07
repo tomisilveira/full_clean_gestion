@@ -72,6 +72,14 @@ router.post('/invoice/:saleId', authenticateToken, requireRole(['ADMIN', 'VENDED
     });
 
     if (!sale) return res.status(404).json({ error: 'Venta no encontrada.' });
+
+    // Aislamiento por sucursal: emitir un comprobante fiscal real (con CAE) es una acción
+    // irreversible, así que un VENDEDOR no debe poder emitirla para una venta de otra
+    // sucursal a la que no tiene acceso (mismo criterio que GET /api/sales/:id).
+    if (req.user?.role !== 'ADMIN' && sale.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a esta venta (pertenece a otra sucursal).' });
+    }
+
     if (sale.invoiceARCA) {
       return res.status(400).json({ error: 'Esta venta ya tiene un comprobante ARCA/AFIP emitido.', invoice: sale.invoiceARCA });
     }

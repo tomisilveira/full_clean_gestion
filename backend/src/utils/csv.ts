@@ -5,7 +5,15 @@
 export function toCsv(rows: Record<string, any>[], columns: { key: string; label: string }[]): string {
   const escapeCell = (value: any): string => {
     if (value === null || value === undefined) return '';
-    const str = String(value);
+    let str = String(value);
+    // Mitigación de CSV/Formula Injection: si la celda arranca con un carácter que Excel /
+    // Sheets interpreta como inicio de fórmula (=, +, -, @) o tab/CR, se le antepone una
+    // comilla simple para forzar que se lea como texto literal. Sin esto, un nombre de
+    // cliente/producto cargado por un usuario (ej. "=cmd|'/c calc'!A1") podía ejecutar una
+    // fórmula/macro apenas alguien abriera el CSV exportado en Excel.
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = `'${str}`;
+    }
     if (/[",\n\r]/.test(str)) {
       return `"${str.replace(/"/g, '""')}"`;
     }

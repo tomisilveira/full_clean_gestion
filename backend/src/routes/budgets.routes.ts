@@ -6,10 +6,27 @@ import { createSale, ValidationError } from '../services/salesService';
 
 const router = Router();
 
-// GET /api/budgets
-router.get('/', authenticateToken, async (req, res) => {
+// GET /api/budgets (por sucursal activa; ADMIN puede pedir ?all=true o ?sucursalId=)
+// Mismo criterio de aislamiento por sucursal que /api/sales y /api/purchases.
+router.get('/', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    const { all, sucursalId } = req.query;
+    const where: any = {};
+
+    if (req.user?.role === 'ADMIN' && all === 'true') {
+      // sin filtro de sucursal: consolidado
+    } else if (req.user?.role === 'ADMIN' && sucursalId) {
+      where.sucursalId = parseInt(sucursalId as string);
+    } else {
+      // -1 (nunca matchea un id real) en vez de `undefined`: Prisma ignora una clave en
+      // `where` cuyo valor es undefined, tratándola como "sin filtro" — si un no-ADMIN
+      // todavía no seleccionó sucursal (sucursalId ausente en el token), esto devolvería
+      // el listado completo de todas las sucursales en vez de ninguno.
+      where.sucursalId = req.user?.sucursalId ?? -1;
+    }
+
     const budgets = await prisma.budget.findMany({
+      where,
       include: {
         customer: { select: { id: true, name: true, cuitDni: true, phone: true } },
         items: true,
@@ -24,7 +41,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // GET /api/budgets/:id
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const id = parseInt(req.params.id);
     const budget = await prisma.budget.findUnique({
@@ -36,6 +53,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
       },
     });
     if (!budget) return res.status(404).json({ error: 'Presupuesto no encontrado.' });
+
+    // Aislamiento por sucursal: un ADMIN puede ver cualquier presupuesto; el resto solo
+    // los de su sucursal activa (los presupuestos sin sucursal asignada quedan
+    // restringidos a ADMIN, igual que si fueran de "otra" sucursal).
+    if (req.user?.role !== 'ADMIN' && budget.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a este presupuesto (pertenece a otra sucursal).' });
+    }
+
     return res.json(budget);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
@@ -173,7 +198,7 @@ router.post('/:id/convert', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']
 });
 
 // GET /api/budgets/:id/pdf
-router.get('/:id/pdf', authenticateToken, async (req, res) => {
+router.get('/:id/pdf', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const id = parseInt(req.params.id);
     const budget = await prisma.budget.findUnique({
@@ -182,6 +207,11 @@ router.get('/:id/pdf', authenticateToken, async (req, res) => {
     });
 
     if (!budget) return res.status(404).json({ error: 'Presupuesto no encontrado.' });
+
+    // Mismo aislamiento por sucursal que en GET /:id.
+    if (req.user?.role !== 'ADMIN' && budget.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a este presupuesto (pertenece a otra sucursal).' });
+    }
 
     const company = await prisma.companyConfig.findFirst() || {
       businessName: 'Artículos de Limpieza Full Clean',

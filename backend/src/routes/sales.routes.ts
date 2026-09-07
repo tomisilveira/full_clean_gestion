@@ -19,7 +19,11 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     } else if (req.user?.role === 'ADMIN' && sucursalId) {
       where.sucursalId = parseInt(sucursalId as string);
     } else {
-      where.sucursalId = req.user!.sucursalId!;
+      // -1 (nunca matchea un id real) en vez de `undefined`: Prisma ignora una clave en
+      // `where` cuyo valor es undefined, tratándola como "sin filtro" — si un no-ADMIN
+      // todavía no seleccionó sucursal (sucursalId ausente en el token), esto devolvería
+      // el listado completo de todas las sucursales en vez de ninguno.
+      where.sucursalId = req.user?.sucursalId ?? -1;
     }
 
     if (startDate || endDate) {

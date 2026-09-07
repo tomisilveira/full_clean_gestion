@@ -220,8 +220,10 @@ router.get('/history', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const consolidado = req.user?.role === 'ADMIN' && req.query.all === 'true';
 
+    // Ver nota equivalente en sales.routes.ts: -1 en vez de `undefined` para no devolver
+    // el consolidado de todas las sucursales si todavía no se seleccionó una.
     const sessions = await prisma.cashSession.findMany({
-      where: consolidado ? {} : { sucursalId: req.user!.sucursalId! },
+      where: consolidado ? {} : { sucursalId: req.user?.sucursalId ?? -1 },
       include: {
         openedByUser: { select: { name: true } },
         closedByUser: { select: { name: true } },
@@ -238,11 +240,18 @@ router.get('/history', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // GET /api/cash/session/:id/report
-router.get('/session/:id/report', authenticateToken, async (req, res) => {
+router.get('/session/:id/report', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const id = parseInt(req.params.id);
     const report = await calculateSessionTotals(id);
     if (!report) return res.status(404).json({ error: 'Sesión de caja no encontrada.' });
+
+    // Aislamiento por sucursal: un ADMIN puede ver cualquier caja; el resto solo las
+    // sesiones de su sucursal activa (mismo criterio que /api/sales/:id).
+    if (req.user?.role !== 'ADMIN' && report.session.sucursalId !== req.user?.sucursalId) {
+      return res.status(403).json({ error: 'No tiene acceso a esta caja (pertenece a otra sucursal).' });
+    }
+
     return res.json(report);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { prisma } from '../db/prisma';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -28,7 +29,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ error: 'Acceso no autorizado: Token no proporcionado.' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, async (err, decoded) => {
     if (err) {
       // 401 (no autenticado), no 403 (no autorizado): el interceptor de axios del
       // frontend solo limpia la sesión vencida y redirige a /login ante un 401. Si esto
@@ -37,8 +38,27 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
       // que lo mandaran a loguearse de nuevo.
       return res.status(401).json({ error: 'Token inválido o expirado.' });
     }
-    req.user = decoded as AuthRequest['user'];
-    next();
+
+    const payload = decoded as AuthRequest['user'];
+
+    // Revalidar el usuario contra la base en cada request: el JWT solo prueba que en su
+    // momento se logueó, pero es válido por 24hs y no se puede revocar por sí mismo. Sin
+    // esto, desactivar un usuario o bajarle el rol (PUT /api/auth/users/:id) no tenía
+    // efecto real hasta que el token expirara solo. Se usa el rol vigente en base (no el
+    // del token) para que un cambio de permisos aplique de inmediato.
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: payload!.id },
+        select: { active: true, role: true },
+      });
+      if (!dbUser || !dbUser.active) {
+        return res.status(401).json({ error: 'Usuario inactivo o eliminado. Vuelva a iniciar sesión.' });
+      }
+      req.user = { ...payload!, role: dbUser.role };
+      next();
+    } catch (dbErr) {
+      return res.status(500).json({ error: 'Error verificando la sesión.' });
+    }
   });
 };
 

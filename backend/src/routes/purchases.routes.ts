@@ -19,7 +19,9 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     } else if (req.user?.role === 'ADMIN' && sucursalId) {
       where.sucursalId = parseInt(sucursalId as string);
     } else {
-      where.sucursalId = req.user!.sucursalId!;
+      // Ver nota equivalente en sales.routes.ts: -1 en vez de `undefined` para no
+      // devolver el consolidado de todas las sucursales si todavía no se seleccionó una.
+      where.sucursalId = req.user?.sucursalId ?? -1;
     }
 
     const purchases = await prisma.purchase.findMany({
