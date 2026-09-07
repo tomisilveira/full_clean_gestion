@@ -13,6 +13,8 @@ import {
   ArrowRightLeft,
   Tag,
   CheckCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 export const ProductsPage: React.FC = () => {
@@ -27,6 +29,7 @@ export const ProductsPage: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [selectedProductForMovement, setSelectedProductForMovement] = useState<any>(null);
   const [selectedProductForTransfer, setSelectedProductForTransfer] = useState<any>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   // Form states for Transfer
   const [transferToId, setTransferToId] = useState('');
@@ -210,6 +213,7 @@ export const ProductsPage: React.FC = () => {
           <p className="text-xs text-secondary mt-1">
             Gestión completa de productos, precios, alertas de stock mínimo y ajustes manuales.
             {' '}Stock mostrado: <span className="text-teal-400 font-semibold">{activeSucursal?.nombre}</span>.
+            {' '}Expandí una fila para ver el stock de todas las sucursales.
           </p>
         </div>
 
@@ -291,9 +295,13 @@ export const ProductsPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                products.map((prod: any) => {
+                products.flatMap((prod: any) => {
                   const isLow = prod.currentStock <= prod.minStock;
-                  return (
+                  const isExpanded = expandedId === prod.id;
+                  const porSucursal: any[] = prod.stockPorSucursal || [];
+                  const showTotalLine =
+                    prod.totalStock !== undefined && activeSucursal && porSucursal.length > 1;
+                  return [
                     <tr key={prod.id} className="hover:bg-surface2/40 transition">
                       <td className="p-4 font-mono text-xs text-teal-400 font-bold">{prod.code}</td>
                       <td className="p-4">
@@ -305,15 +313,34 @@ export const ProductsPage: React.FC = () => {
                       <td className="p-4 text-right font-mono font-bold text-heading">${prod.salePrice.toFixed(2)}</td>
                       <td className="p-4 text-right font-mono text-secondary">${prod.wholesalePrice.toFixed(2)}</td>
                       <td className="p-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold font-mono ${
-                            isLow
-                              ? 'bg-red-950/80 border border-red-800 text-red-400'
-                              : 'bg-emerald-950/80 border border-emerald-800 text-emerald-400'
-                          }`}
+                        <button
+                          onClick={() => setExpandedId(isExpanded ? null : prod.id)}
+                          title="Ver stock por sucursal"
+                          className="inline-flex flex-col items-center gap-1 group"
                         >
-                          {prod.currentStock} {prod.unit}
-                        </span>
+                          <span className="inline-flex items-center gap-1">
+                            {porSucursal.length > 0 &&
+                              (isExpanded ? (
+                                <ChevronDown className="w-3.5 h-3.5 text-muted group-hover:text-body" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5 text-muted group-hover:text-body" />
+                              ))}
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold font-mono ${
+                                isLow
+                                  ? 'bg-red-950/80 border border-red-800 text-red-400'
+                                  : 'bg-emerald-950/80 border border-emerald-800 text-emerald-400'
+                              }`}
+                            >
+                              {prod.currentStock} {prod.unit}
+                            </span>
+                          </span>
+                          {showTotalLine && (
+                            <span className="text-[10px] text-muted font-mono">
+                              Total negocio: {prod.totalStock} {prod.unit}
+                            </span>
+                          )}
+                        </button>
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex items-center justify-center space-x-2">
@@ -352,8 +379,64 @@ export const ProductsPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                    </tr>
-                  );
+                    </tr>,
+                    isExpanded && (
+                      <tr key={`${prod.id}-stock`} className="bg-app/40">
+                        <td colSpan={8} className="px-4 pb-4 pt-0">
+                          <div className="rounded-xl border border-surface2 bg-surface2/40 p-4">
+                            <div className="text-xs font-semibold uppercase text-secondary mb-2">
+                              Stock por sucursal
+                            </div>
+                            {porSucursal.length === 0 ? (
+                              <div className="text-xs text-muted">Sin datos de stock por sucursal.</div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {porSucursal.map((s: any) => {
+                                  const low = s.currentStock <= s.minStock;
+                                  const mine = s.sucursalId === activeSucursal?.id;
+                                  return (
+                                    <div
+                                      key={s.sucursalId}
+                                      className="flex items-center justify-between gap-3 text-sm"
+                                    >
+                                      <span className="flex items-center gap-2 text-body">
+                                        {s.nombre}
+                                        {mine && (
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-600/20 text-teal-400 border border-teal-500/30">
+                                            Tu sucursal
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="flex items-center gap-3 font-mono text-xs">
+                                        <span className="text-muted">mín {s.minStock}</span>
+                                        <span
+                                          className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold ${
+                                            low
+                                              ? 'bg-red-950/80 border border-red-800 text-red-400'
+                                              : 'bg-emerald-950/80 border border-emerald-800 text-emerald-400'
+                                          }`}
+                                        >
+                                          {s.currentStock} {prod.unit}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                <div className="flex items-center justify-between gap-3 text-sm pt-2 mt-1 border-t border-surface2 font-semibold text-heading">
+                                  <span>Total en el negocio</span>
+                                  <span className="font-mono">
+                                    {prod.totalStock ??
+                                      porSucursal.reduce((sum: number, s: any) => sum + s.currentStock, 0)}{' '}
+                                    {prod.unit}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ),
+                  ];
                 })
               )}
             </tbody>

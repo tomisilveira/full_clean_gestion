@@ -117,6 +117,69 @@ describe('Multi-Sucursal: Stock por sucursal', () => {
   });
 });
 
+describe('Multi-Sucursal: desglose de stock que adjunta GET /api/products', () => {
+  // Replica attachStock() de products.routes.ts: cada producto lleva el stock de la
+  // sucursal activa (currentStock/minStock), el desglose por sucursal (solo sedes
+  // activas) y el total del negocio.
+  type StockRow = { sucursalId: number; nombre: string; currentStock: number; minStock: number; activa: boolean };
+
+  function attachStock(rows: StockRow[], sucursalActivaId: number | null) {
+    const activas = rows
+      .filter((r) => r.activa)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const totalStock = activas.reduce((sum, r) => sum + r.currentStock, 0);
+    const stockPorSucursal = activas.map((r) => ({
+      sucursalId: r.sucursalId,
+      nombre: r.nombre,
+      currentStock: r.currentStock,
+      minStock: r.minStock,
+    }));
+
+    if (!sucursalActivaId) {
+      return { currentStock: totalStock, minStock: null, totalStock, stockPorSucursal };
+    }
+    const row = activas.find((r) => r.sucursalId === sucursalActivaId);
+    return {
+      currentStock: row?.currentStock ?? 0,
+      minStock: row?.minStock ?? 5,
+      totalStock,
+      stockPorSucursal,
+    };
+  }
+
+  const rows: StockRow[] = [
+    { sucursalId: 1, nombre: 'Local Central', currentStock: 25, minStock: 10, activa: true },
+    { sucursalId: 2, nombre: 'Local Felix San Martin', currentStock: 15, minStock: 10, activa: true },
+    { sucursalId: 3, nombre: 'Depósito Viejo', currentStock: 100, minStock: 0, activa: false },
+  ];
+
+  it('El total suma solo las sucursales activas y el desglose excluye las inactivas', () => {
+    const res = attachStock(rows, 1);
+    expect(res.totalStock).toBe(40); // 25 + 15, sin los 100 del depósito inactivo
+    expect(res.stockPorSucursal).toHaveLength(2);
+    expect(res.stockPorSucursal.some((s) => s.sucursalId === 3)).toBe(false);
+  });
+
+  it('Con sucursal activa, currentStock es el de esa sede y no el total', () => {
+    const res = attachStock(rows, 2);
+    expect(res.currentStock).toBe(15);
+    expect(res.minStock).toBe(10);
+    expect(res.totalStock).toBe(40);
+  });
+
+  it('Sin sucursal activa (ADMIN sin sede), la columna principal muestra el consolidado', () => {
+    const res = attachStock(rows, null);
+    expect(res.currentStock).toBe(40);
+    expect(res.minStock).toBeNull();
+  });
+
+  it('Un producto sin fila en la sucursal activa reporta 0 y no rompe', () => {
+    const res = attachStock([rows[0]], 2);
+    expect(res.currentStock).toBe(0);
+    expect(res.totalStock).toBe(25);
+  });
+});
+
 describe('Multi-Sucursal: Transferencia de stock entre sucursales', () => {
   function transferir(origen: number, destino: number, cantidad: number) {
     if (cantidad <= 0) throw new Error('Cantidad inválida');

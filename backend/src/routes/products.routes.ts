@@ -12,25 +12,45 @@ function resolveSucursalId(req: AuthRequest): number | null {
   return req.user?.sucursalId || null;
 }
 
+// Adjunta a cada producto: el stock de la sucursal activa (currentStock/minStock, lo que
+// consume la tabla principal y la lógica de bajo mínimo), el desglose por sucursal
+// (stockPorSucursal, solo sedes activas) y el total del negocio (totalStock).
+// Todos los roles reciben el desglose: el vendedor lo usa para consultar en modo lectura
+// si hay stock en el otro local. El nombre de la sucursal viaja en el payload porque un
+// VENDEDOR no tiene la lista de sucursales ajenas en el frontend.
 async function attachStock(products: any[], sucursalId: number | null) {
-  if (!sucursalId) {
-    // Sin sucursal activa (ej. ADMIN consultando catálogo sin elegir sucursal): stock total consolidado
-    const stocks = await prisma.productStock.findMany({
-      where: { productId: { in: products.map((p) => p.id) } },
-    });
-    return products.map((p) => {
-      const rows = stocks.filter((s) => s.productId === p.id);
-      const totalStock = rows.reduce((sum, s) => sum + s.currentStock, 0);
-      return { ...p, currentStock: totalStock, minStock: null, stockPorSucursal: rows };
-    });
-  }
-
   const stocks = await prisma.productStock.findMany({
-    where: { productId: { in: products.map((p) => p.id) }, sucursalId },
+    where: { productId: { in: products.map((p) => p.id) } },
+    include: { sucursal: { select: { id: true, nombre: true, activa: true } } },
   });
+
   return products.map((p) => {
-    const row = stocks.find((s) => s.productId === p.id);
-    return { ...p, currentStock: row?.currentStock ?? 0, minStock: row?.minStock ?? 5 };
+    const rows = stocks
+      .filter((s) => s.productId === p.id && s.sucursal.activa)
+      .sort((a, b) => a.sucursal.nombre.localeCompare(b.sucursal.nombre));
+
+    const totalStock = rows.reduce((sum, s) => sum + s.currentStock, 0);
+    const stockPorSucursal = rows.map((s) => ({
+      sucursalId: s.sucursalId,
+      nombre: s.sucursal.nombre,
+      currentStock: s.currentStock,
+      minStock: s.minStock,
+    }));
+
+    if (!sucursalId) {
+      // Sin sucursal activa (ej. ADMIN consultando catálogo sin elegir sucursal): la columna
+      // principal muestra el consolidado.
+      return { ...p, currentStock: totalStock, minStock: null, totalStock, stockPorSucursal };
+    }
+
+    const row = rows.find((s) => s.sucursalId === sucursalId);
+    return {
+      ...p,
+      currentStock: row?.currentStock ?? 0,
+      minStock: row?.minStock ?? 5,
+      totalStock,
+      stockPorSucursal,
+    };
   });
 }
 
