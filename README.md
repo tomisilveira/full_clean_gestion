@@ -33,6 +33,8 @@ Sistema de gestión integral para un negocio de artículos de limpieza con **má
 ## 🏢 Multi-sucursal: cómo funciona
 
 - **Stock, caja y ventas son independientes por sucursal.** Un mismo producto tiene cantidades de stock distintas en cada local (`ProductStock`), y solo se transfiere stock entre sucursales de forma explícita (Stock → botón de transferencia, solo ADMIN).
+- **Visibilidad del stock entre sedes.** En **Stock e Inventario**, la columna principal siempre muestra el stock de la sucursal activa (y sobre ese stock operan los ajustes y las alertas de mínimo). Al expandir una fila (chevron) cualquier usuario ve el **desglose por sucursal** y el **total en el negocio**, con su propia sede marcada como "Tu sucursal". Para el `VENDEDOR` es de **solo lectura**: sirve para saber si el otro local tiene el faltante, pero no puede vender ni mover ese stock; el envío se coordina por fuera del sistema y la transferencia real la ejecuta el `ADMIN`.
+- **Aislamiento de datos por sucursal.** Ventas, compras, presupuestos y sesiones de caja se filtran por la sucursal activa; un usuario que no es `ADMIN` recibe `403` si intenta abrir por id un presupuesto, reporte de caja o venta (incluida la emisión ARCA) de otra sucursal.
 - **Cada sucursal tiene su propio punto de venta ARCA.** Al emitir una factura, el sistema usa el `ptoVtaArca` de la sucursal donde se generó la venta — no hay que elegirlo a mano.
 - **Cada usuario está asociado a una o más sucursales** (tabla `UserSucursal`). Un `ADMIN` ve y opera todas las sucursales; un `VENDEDOR` o `SOLO_CONSULTA` solo las que se le asignen.
 - **Al iniciar sesión**, si el usuario tiene más de una sucursal disponible, el sistema pide elegir con cuál va a operar antes de dejarlo entrar a caja/ventas/stock. Se puede cambiar de sucursal en cualquier momento desde el selector en la barra superior (esto emite un nuevo token con la sucursal elegida).
@@ -127,21 +129,33 @@ full_clean_gestion/
 ├── backend/                # API REST (Express + TypeScript + Prisma + PostgreSQL)
 │   ├── src/
 │   │   ├── index.ts                  # server + sirve frontend/dist en producción
-│   │   ├── middleware/auth.ts        # JWT + rol + sucursal activa (requireSucursal)
-│   │   ├── utils/sucursales.ts       # resolución de sucursales por usuario/rol
+│   │   ├── middleware/
+│   │   │   ├── auth.ts               # JWT (revalidado contra la base) + rol + sucursal activa (requireSucursal)
+│   │   │   ├── rateLimit.ts          # límite general de requests por IP a /api
+│   │   │   └── loginRateLimit.ts     # anti fuerza bruta en el login
+│   │   ├── services/
+│   │   │   ├── salesService.ts       # creación de ventas (POS y conversión de presupuestos)
+│   │   │   └── arcaService.ts        # emisión de comprobantes contra ARCA
+│   │   ├── utils/
+│   │   │   ├── sucursales.ts         # resolución de sucursales por usuario/rol
+│   │   │   └── csv.ts                # generación de CSV (con mitigación de formula injection)
 │   │   ├── routes/
-│   │   │   ├── auth.routes.ts        # login en 2 pasos + selección de sucursal
+│   │   │   ├── auth.routes.ts        # login en 2 pasos + selección de sucursal + usuarios
 │   │   │   ├── sucursales.routes.ts  # CRUD de sucursales (ADMIN)
-│   │   │   ├── products.routes.ts    # catálogo global + stock por sucursal + transferencias
+│   │   │   ├── categories.routes.ts
+│   │   │   ├── products.routes.ts    # catálogo global + stock por sucursal (con desglose) + transferencias
 │   │   │   ├── cash.routes.ts        # caja por sucursal
 │   │   │   ├── sales.routes.ts       # ventas atadas a sucursal
-│   │   │   ├── customers.routes.ts
-│   │   │   ├── suppliers.routes.ts   # compras impactan stock de la sucursal activa
-│   │   │   ├── budgets.routes.ts
+│   │   │   ├── customers.routes.ts   # clientes + estado de cuenta + cobros
+│   │   │   ├── suppliers.routes.ts   # proveedores + compras (impactan stock de la sucursal activa)
+│   │   │   ├── purchases.routes.ts   # historial/anulación de compras por sucursal
+│   │   │   ├── budgets.routes.ts     # presupuestos, aprobación y conversión real a venta
+│   │   │   ├── manualInvoices.routes.ts # facturación libre (ADMIN)
 │   │   │   ├── tickets.routes.ts     # ticket usa dirección/impresora de la sucursal
 │   │   │   ├── arca.routes.ts        # ptoVta viene de la sucursal de la venta
 │   │   │   ├── mercadopago.routes.ts # webhook con conciliación real
-│   │   │   ├── reports.routes.ts     # por sucursal o consolidado
+│   │   │   ├── reports.routes.ts     # por sucursal o consolidado (ADMIN / SOLO_CONSULTA)
+│   │   │   ├── export.routes.ts      # exportación CSV y volcado completo JSON (ADMIN)
 │   │   │   └── config.routes.ts      # datos de empresa + carga de certificados ARCA
 │   │   └── db/prisma.ts
 │   ├── prisma/schema.prisma          # Sucursal, UserSucursal, ProductStock, etc.
@@ -178,9 +192,11 @@ full_clean_gestion/
 - **`UserSucursal`**: tabla puente usuario ↔ sucursal (n a n). `ADMIN` no depende de esta tabla para el acceso (ve todas), pero igual puede tener filas para aparecer en listados.
 - **`ProductStock`**: `(productId, sucursalId)` único — el stock real vive acá, no en `Product`.
 - **`StockMovement`**: tiene `sucursalId` (y `sucursalDestinoId` en transferencias).
-- **`CashSession` / `Sale` / `Purchase`**: todas tienen `sucursalId`.
+- **`CashSession` / `Sale` / `Purchase` / `Budget` / `ManualInvoice`**: todas tienen `sucursalId`.
 - **`Product` / `Customer` / `Supplier`**: catálogo y terceros globales, compartidos entre sucursales.
-- **`InvoiceARCA`**: guarda `ptoVta`, `cbteTipo`, `cae`, `caeVto`, etc. — vinculada 1 a 1 con `Sale`.
+- **`Budget`**: al convertirse genera una `Sale` real (con cobro y descuento de stock) y queda vinculado vía `convertedSaleId`.
+- **`ManualInvoice` / `ManualInvoiceItem`**: factura libre de texto libre, sin relación con `Product`, stock ni caja.
+- **`InvoiceARCA`**: guarda `ptoVta`, `cbteTipo`, `cae`, `caeVto`, etc. — vinculada 1 a 1 con una `Sale` **o** con una `ManualInvoice` (nunca con ambas).
 
 ---
 
@@ -188,12 +204,14 @@ full_clean_gestion/
 
 | Módulo | Descripción |
 |---|---|
-| **Punto de Venta (POS)** | Lector de código de barras, búsqueda por nombre, vista en lista, carrito, pagos combinados, stock de la sucursal activa |
-| **Stock e Inventario** | CRUD de productos (catálogo global), stock por sucursal, transferencias entre sucursales, alertas de mínimo por sucursal |
+| **Punto de Venta (POS)** | Lector de código de barras, búsqueda por nombre, vista en lista, carrito, pagos combinados (tarjeta con marca y cuotas), descuento por monto o porcentaje, modo Venta/Presupuesto, stock de la sucursal activa |
+| **Stock e Inventario** | CRUD de productos (catálogo global), stock por sucursal, desglose por sede y total del negocio (filas expandibles), transferencias entre sucursales (ADMIN), alertas de mínimo por sucursal |
 | **Caja** | Apertura/cierre independiente por sucursal, arqueo con diferencia, desglose por medio de pago |
-| **Clientes** | Consumidor Final + Mayoristas, cuentas corrientes globales, historial de compras |
-| **Proveedores** | Registro de compras que impactan el stock de la sucursal activa, cuentas corrientes |
-| **Presupuestos** | Cotizaciones con PDF, conversión directa a venta |
+| **Clientes** | Consumidor Final + Mayoristas, cuentas corrientes globales, estado de cuenta (incluye facturas libres), registro de cobros |
+| **Proveedores** | Registro de compras que impactan el stock de la sucursal activa, cuentas corrientes, pagos |
+| **Presupuestos** | Cotizaciones con PDF, aprobación y conversión a venta real eligiendo el medio de pago |
+| **Facturación Libre** | (ADMIN) Comprobantes ARCA de texto libre para operaciones por fuera del catálogo; no toca stock ni caja y no puede asociarse a una venta/presupuesto existente |
+| **Exportación de datos** | (ADMIN) CSV de clientes, proveedores, productos, ventas y compras, y volcado completo en JSON |
 | **Ventas** | Historial filtrable por fecha y por sucursal (o consolidado), anulación con reversión de stock, indicador de qué ventas requieren factura ARCA |
 | **Facturación ARCA** | Facturas A/B/C con el punto de venta de la sucursal emisora, CAE en tiempo real, certificado cargable desde la UI |
 | **Mercado Pago** | Checkout Pro + conciliación automática vía webhook contra la venta y su sucursal |
@@ -211,11 +229,11 @@ Regla aplicada en el sistema: **toda venta a un cliente identificado (con CUIT/D
 
 | Rol | Permisos |
 |---|---|
-| `ADMIN` | Acceso total, todas las sucursales, gestión de usuarios/sucursales/config |
-| `VENDEDOR` | Ventas, caja, stock — limitado a su(s) sucursal(es) asignada(s) |
+| `ADMIN` | Acceso total, todas las sucursales (stock por sede y total del negocio), transferencias de stock, reportes consolidados, facturación libre, exportación, gestión de usuarios/sucursales/config |
+| `VENDEDOR` | Ventas, caja, stock, presupuestos — operando solo sobre su(s) sucursal(es) asignada(s). Puede **consultar** (solo lectura) el stock de las otras sedes, pero no transferirlo. No accede a reportes (rentabilidad, valorización de stock, caja consolidada) |
 | `SOLO_CONSULTA` | Solo reportes/consultas, limitado a su(s) sucursal(es) asignada(s) |
 
-Gestión de usuarios y su asignación a sucursales: **Configuración → Usuarios** (solo ADMIN).
+Gestión de usuarios (alta, cambio de rol/contraseña, baja) y su asignación a sucursales: **Configuración → Usuarios** (solo ADMIN). El rol y el estado activo se revalidan contra la base en cada request, por lo que desactivar un usuario o cambiarle el rol tiene efecto inmediato, sin esperar a que expire su token.
 
 ---
 
@@ -354,7 +372,7 @@ cd backend
 npm test
 ```
 
-Cubre lógica crítica: cálculo de precio/IVA, arqueo de caja, movimientos de stock, stock independiente por sucursal, transferencias entre sucursales, aislamiento de caja por sucursal, y numeración de comprobantes ARCA por punto de venta de sucursal.
+Cubre lógica crítica: cálculo de precio/IVA, descuentos por monto/porcentaje, arqueo de caja, movimientos de stock, stock independiente por sucursal, desglose y total de stock por sede, transferencias entre sucursales, aislamiento de caja por sucursal, y numeración de comprobantes ARCA por punto de venta de sucursal.
 
 ---
 
@@ -368,8 +386,12 @@ NODE_ENV=development
 # Base de Datos (PostgreSQL)
 DATABASE_URL="postgresql://fullclean_app:fullclean_dev_pw@127.0.0.1:5432/fullclean_dev?schema=public"
 
-# JWT
+# JWT (obligatorio en producción: el servidor no arranca con NODE_ENV=production sin definirlo)
 JWT_SECRET="cambiar_por_clave_segura_en_produccion"
+
+# CORS (opcional): lista de orígenes separados por coma, solo si el frontend se deploya
+# aparte. Si no se define, el frontend se sirve desde el mismo proceso y no hace falta.
+# FRONTEND_URL=https://mi-frontend.example.com
 
 # ARCA / AFIP — normalmente no hace falta tocar nada acá: el CUIT se carga desde
 # Configuración → Empresa, y los certificados desde Configuración → Empresa → Certificado
@@ -392,10 +414,16 @@ MP_WEBHOOK_URL=http://localhost:4000/api/mercadopago/webhook
 | POST | `/api/auth/select-sucursal` | Elegir/cambiar la sucursal activa (emite nuevo token) |
 | GET | `/api/auth/me` | Usuario autenticado + sucursales disponibles + sucursal activa |
 | GET/POST/PUT | `/api/sucursales` | CRUD de sucursales (ADMIN) |
-| GET | `/api/products` | Catálogo con stock de la sucursal activa (`?sucursalId=` para ADMIN) |
+| GET | `/api/products` | Catálogo. `currentStock`/`minStock` son los de la sucursal activa (`?sucursalId=` para ADMIN); además cada producto trae `totalStock` y `stockPorSucursal` (`[{ sucursalId, nombre, currentStock, minStock }]`, solo sedes activas) para todos los roles |
 | GET | `/api/products/low-stock` | Bajo mínimo en la sucursal activa (`?all=true` consolidado, ADMIN) |
 | POST | `/api/products/quick-barcode` | Alta rápida desde POS |
 | POST | `/api/products/:id/transfer` | Transferencia de stock entre sucursales (ADMIN) |
+| GET/POST | `/api/budgets`, `/api/budgets/:id/approve`, `/api/budgets/:id/convert` | Presupuestos de la sucursal activa; la conversión genera una venta real |
+| GET/POST | `/api/customers`, `/api/customers/:id/account`, `/api/customers/:id/payments` | Clientes, estado de cuenta y cobros |
+| GET/POST | `/api/suppliers`, `/api/suppliers/:id/purchases`, `/api/suppliers/:id/payments` | Proveedores, compras y pagos |
+| GET/POST | `/api/purchases`, `/api/purchases/:id/cancel` | Historial de compras por sucursal; anulación (ADMIN) |
+| GET/POST | `/api/manual-invoices`, `/api/manual-invoices/:id/pdf` | Facturación libre (ADMIN) |
+| GET | `/api/export/*.csv`, `/api/export/full` | Exportación de datos en CSV / JSON completo (ADMIN) |
 | GET/POST | `/api/cash/current`, `/api/cash/open`, `/api/cash/close` | Caja de la sucursal activa |
 | POST | `/api/sales` | Venta atada a la sucursal activa (requiere caja abierta ahí) |
 | GET | `/api/sales?startDate=&endDate=` | Historial filtrado por fecha (y sucursal) |
@@ -409,6 +437,17 @@ MP_WEBHOOK_URL=http://localhost:4000/api/mercadopago/webhook
 ---
 
 ## 🛡️ Seguridad en Producción
+
+Ya implementado en el código:
+
+- **Sesión revalidada en cada request**: `authenticateToken` consulta el usuario en la base (activo + rol vigente), así que un token de 24 hs no sobrevive a una baja o cambio de permisos.
+- **Rate limiting**: máx. 8 intentos de login fallidos por IP+usuario cada 15 min, y 300 requests por IP cada 5 min sobre toda la API (en memoria, por proceso; si se corre con varias instancias conviene un store compartido).
+- **Aislamiento por sucursal** en listados y accesos por id (ventas, compras, presupuestos, caja, emisión ARCA), con `403` para quien no es `ADMIN`.
+- **`helmet`** para cabeceras de seguridad y **CORS** restringible con `FRONTEND_URL`.
+- **CSV/formula injection**: las celdas exportadas que empiezan con `=`, `+`, `-` o `@` se prefijan con `'` para que Excel/Sheets no las ejecuten como fórmula.
+- **Exportación y facturación libre** restringidas a `ADMIN`.
+
+Recomendaciones de despliegue:
 
 - Cambiar `JWT_SECRET` por una cadena aleatoria larga (mínimo 64 caracteres) — no reusar la de desarrollo.
 - Nunca subir `.env` ni `certs/` al repositorio Git (ya excluidos en `.gitignore`).
