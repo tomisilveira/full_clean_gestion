@@ -1,7 +1,9 @@
+// Debe ser el primer import: carga backend/.env antes de que otros módulos (ej.
+// middleware/auth.ts, que exige JWT_SECRET al cargarse) lean process.env.
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +24,6 @@ import reportRoutes from './routes/reports.routes';
 import configRoutes from './routes/config.routes';
 import exportRoutes from './routes/export.routes';
 import { createRateLimiter } from './middleware/rateLimit';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;

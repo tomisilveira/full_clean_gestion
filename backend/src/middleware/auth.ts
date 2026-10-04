@@ -13,13 +13,14 @@ export interface AuthRequest extends Request {
   };
 }
 
-// En producción es obligatorio definir JWT_SECRET por variable de entorno: el valor por
-// defecto es público (está en este repo), así que usarlo en producción permitiría a
-// cualquiera forjar tokens válidos (incluso de ADMIN) sin conocer ninguna contraseña.
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET no está configurado. Es obligatorio definirlo en producción (variable de entorno).');
+// JWT_SECRET es obligatorio en todos los entornos y no tiene valor por defecto: el repo es
+// público, así que cualquier secreto escrito acá permitiría a cualquiera forjar tokens
+// válidos (incluso de ADMIN) sin conocer ninguna contraseña. En desarrollo se define en
+// backend/.env (ver backend/.env.example).
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET no está configurado. Definilo en backend/.env (ver .env.example) o como variable de entorno.');
 }
-const JWT_SECRET = process.env.JWT_SECRET || 'full_clean_super_secret_jwt_key_2026';
+const JWT_SECRET: string = process.env.JWT_SECRET;
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];

@@ -63,10 +63,10 @@ Si no tenés PostgreSQL instalado localmente:
 winget install -e --id PostgreSQL.PostgreSQL.17 --accept-source-agreements --accept-package-agreements
 ```
 
-Crear el usuario y la base de datos de la aplicación (reemplazá la contraseña por una propia):
+Crear el usuario y la base de datos de la aplicación (reemplazá `TU_CONTRASENA` por una propia):
 
 ```bash
-psql -U postgres -h 127.0.0.1 -c "CREATE USER fullclean_app WITH PASSWORD 'fullclean_dev_pw' CREATEDB;"
+psql -U postgres -h 127.0.0.1 -c "CREATE USER fullclean_app WITH PASSWORD 'TU_CONTRASENA' CREATEDB;"
 psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE fullclean_dev OWNER fullclean_app;"
 ```
 
@@ -82,9 +82,21 @@ npm run install:all
 
 ### Paso 3: Configurar `backend/.env`
 
+Copiar la plantilla y completarla:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
 ```env
-DATABASE_URL="postgresql://fullclean_app:fullclean_dev_pw@127.0.0.1:5432/fullclean_dev?schema=public"
-JWT_SECRET="cualquier-cadena-larga-y-aleatoria"
+DATABASE_URL="postgresql://fullclean_app:TU_CONTRASENA@127.0.0.1:5432/fullclean_dev?schema=public"
+JWT_SECRET="<generá uno aleatorio, ver abajo>"
+```
+
+`JWT_SECRET` es **obligatorio** (el servidor no arranca sin él y no hay valor por defecto). Para generar uno:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
 ### Paso 4: Migrar y cargar datos iniciales
@@ -99,6 +111,8 @@ Esto crea:
 - **2 sucursales** de ejemplo (renombralas/agregá más desde **Configuración → Sucursales**)
 - **Usuario admin**: `admin` / `admin123` (asignado a todas las sucursales)
 - **Usuario vendedor**: `vendedor` / `vendedor123` (asignado a una sola sucursal)
+
+> Esas contraseñas son **solo para desarrollo local**. Se pueden pisar con `SEED_ADMIN_PASSWORD` / `SEED_VENDEDOR_PASSWORD` en `backend/.env`. En producción el seed nunca usa contraseñas conocidas (ver [Deploy](#️-deploy-a-producción--demo-render--neon)).
 - **4 categorías** de artículos de limpieza
 - **4 productos** de ejemplo con stock independiente en cada sucursal
 - **1 proveedor** de ejemplo
@@ -331,15 +345,17 @@ Crear una cuenta y un proyecto nuevo; copiar el **connection string** (`postgres
    | Key | Value |
    |---|---|
    | `DATABASE_URL` | connection string de Neon |
-   | `JWT_SECRET` | una cadena aleatoria larga |
+   | `JWT_SECRET` | una cadena aleatoria larga (**obligatorio**; sin esto el servidor no arranca) |
    | `NODE_ENV` | `production` |
    | `AFIP_PRODUCTION` | `false` (dejar en homologación hasta tener certificado real) |
+   | `SEED_ADMIN_PASSWORD` | contraseña inicial del usuario `admin` (recomendado; si no se define se genera una y se imprime **una sola vez** en el log del primer arranque) |
+   | `SEED_DEMO_DATA` | `true` solo para una demo pública: crea además el catálogo de ejemplo y el usuario `vendedor` (con `SEED_VENDEDOR_PASSWORD`, o una generada) |
 
 4. Deploy. El primer build tarda unos minutos (instala, compila frontend y backend, corre `prisma migrate deploy` y el seed, y arranca el servidor).
 
 > **Plan gratis de Render**: el servicio "duerme" tras ~15 min sin uso; la primera visita después de eso demora ~30 segundos en despertar. Perfecto para una demo, no para producción real con clientes esperando respuesta inmediata.
 
-> El `start:prod` de `backend/package.json` corre `prisma migrate deploy` + el seed (idempotente) en cada arranque — así los usuarios `admin`/`vendedor` de prueba siempre están disponibles para mostrar el sistema, incluso después de un reinicio del contenedor. **No usar ese comportamiento tal cual en un deploy con datos reales de producción** sin revisar primero si conviene sacar el seed automático.
+> El `start:prod` de `backend/package.json` corre `prisma migrate deploy` + el seed en cada arranque, pero en producción **el seed solo actúa cuando la base está vacía** (no hay usuarios): en los arranques siguientes se omite y no toca ni las contraseñas ni las sucursales que ya renombraste. Si querés forzarlo igual, `SEED_FORCE=true`.
 
 ### ¿Y con más de una sucursal en la vida real, sin depender de Render/Neon?
 
@@ -353,7 +369,7 @@ Es una decisión de infraestructura que cada uno resuelve según su caso: puede 
 ```bash
 backup.bat
 ```
-(usa `pg_dump` contra `DATABASE_URL` — ajustar el script si cambia el motor/credenciales)
+(usa `pg_dump`; la contraseña **no** está en el script: definir antes la variable de entorno `PGPASSWORD`, y opcionalmente `PGHOST`, `PGPORT`, `PGUSER` y `PGDATABASE` si difieren de los valores por defecto)
 
 ### Automático diario con el Programador de Tareas de Windows
 
@@ -384,10 +400,16 @@ PORT=4000
 NODE_ENV=development
 
 # Base de Datos (PostgreSQL)
-DATABASE_URL="postgresql://fullclean_app:fullclean_dev_pw@127.0.0.1:5432/fullclean_dev?schema=public"
+DATABASE_URL="postgresql://fullclean_app:TU_CONTRASENA@127.0.0.1:5432/fullclean_dev?schema=public"
 
-# JWT (obligatorio en producción: el servidor no arranca con NODE_ENV=production sin definirlo)
-JWT_SECRET="cambiar_por_clave_segura_en_produccion"
+# JWT (OBLIGATORIO en todos los entornos: el servidor no arranca sin definirlo)
+JWT_SECRET="<cadena aleatoria larga>"
+
+# Seed (opcionales; ver Paso 4 y la sección de Deploy)
+# SEED_ADMIN_PASSWORD=
+# SEED_VENDEDOR_PASSWORD=
+# SEED_DEMO_DATA=true
+# SEED_FORCE=true
 
 # CORS (opcional): lista de orígenes separados por coma, solo si el frontend se deploya
 # aparte. Si no se define, el frontend se sirve desde el mismo proceso y no hace falta.
@@ -449,12 +471,12 @@ Ya implementado en el código:
 
 Recomendaciones de despliegue:
 
-- Cambiar `JWT_SECRET` por una cadena aleatoria larga (mínimo 64 caracteres) — no reusar la de desarrollo.
-- Nunca subir `.env` ni `certs/` al repositorio Git (ya excluidos en `.gitignore`).
+- `JWT_SECRET` aleatorio y largo (mínimo 64 caracteres), distinto en cada entorno. Es obligatorio y **no tiene valor por defecto en el código** (el repositorio es público).
+- Nunca subir `.env` ni `certs/` al repositorio Git (ya excluidos en `.gitignore`; solo se versiona `backend/.env.example`, sin valores reales).
+- Definir `SEED_ADMIN_PASSWORD` en el primer deploy (o guardar la contraseña generada que se imprime una vez en el log) y cambiarla desde **Configuración → Usuarios**. Las contraseñas `admin123` / `vendedor123` son solo de desarrollo local y **nunca** deben existir en un deploy con datos reales.
 - Usar una contraseña fuerte para el usuario de PostgreSQL de producción (no la de desarrollo local).
-- El repositorio es **privado** en GitHub — no darlo de alta como público sin revisar antes que no quede nada sensible.
 - HTTPS y firewall son responsabilidad del hosting elegido (Render los provee de forma automática con su dominio `.onrender.com`).
-- Si se deja el auto-seed en producción real (ver sección de Deploy), tener en cuenta que resetea las contraseñas de `admin`/`vendedor` en cada arranque — conviene sacarlo una vez que el sistema tenga usuarios y datos reales.
+- Si un deploy tuvo alguna vez un `JWT_SECRET` de ejemplo o por defecto, rotarlo (los tokens emitidos con el anterior quedan inválidos).
 
 ---
 

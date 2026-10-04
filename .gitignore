@@ -8,10 +8,10 @@ build/
 # (bug conocido: npm/cli#4828). Cada entorno resuelve el suyo con "npm install".
 package-lock.json
 
-# Env
+# Env (el .env.example sí se versiona: no tiene valores reales)
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
 # SQLite DB legado (el sistema ahora usa PostgreSQL, se deja por si queda algún archivo local viejo)
 backend/prisma/dev.db
@@ -23,6 +23,9 @@ backend/prisma/dev.db-wal
 backend/certs/*.key
 backend/certs/*.crt
 backend/certs/*.pem
+backend/certs/*.csr
+backend/certs/*.pfx
+backend/certs/*.p12
 
 # Logs
 *.log

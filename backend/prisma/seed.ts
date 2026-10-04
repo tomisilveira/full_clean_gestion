@@ -1,9 +1,56 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
+const isProduction = process.env.NODE_ENV === 'production';
+// Catálogo de ejemplo + usuario vendedor demo: siempre en desarrollo; en producción solo
+// si se pide explícitamente (SEED_DEMO_DATA=true), p. ej. para una demo pública.
+const withDemoData = !isProduction || process.env.SEED_DEMO_DATA === 'true';
+
+// Crea el usuario solo si no existe (nunca pisa la contraseña de uno existente).
+// Contraseña: la de la variable de entorno si está definida; si no, en desarrollo una de
+// demo conocida (admin123 / vendedor123) y en producción una aleatoria que se imprime una
+// única vez en el log — así no queda ninguna credencial por defecto en un deploy real.
+async function ensureUser(opts: {
+  username: string;
+  name: string;
+  role: string;
+  passwordEnv: string;
+  devPassword: string;
+}) {
+  const existing = await prisma.user.findUnique({ where: { username: opts.username } });
+  if (existing) return existing;
+
+  const fromEnv = process.env[opts.passwordEnv];
+  const generated = isProduction && !fromEnv;
+  const password = fromEnv || (isProduction ? crypto.randomBytes(12).toString('base64url') : opts.devPassword);
+
+  const user = await prisma.user.create({
+    data: {
+      username: opts.username,
+      name: opts.name,
+      passwordHash: await bcrypt.hash(password, 10),
+      role: opts.role,
+    },
+  });
+  if (generated) {
+    console.log(`🔑 Usuario "${opts.username}" creado con contraseña generada: ${password}`);
+    console.log('   Guardala ahora y cambiala desde Configuración → Usuarios: no se vuelve a mostrar.');
+  }
+  return user;
+}
+
 async function main() {
+  // En producción el seed corre en cada arranque (start:prod). Si ya hay usuarios, la base
+  // ya fue inicializada: no se vuelve a tocar nada (ni se re-crean sucursales renombradas).
+  // SEED_FORCE=true lo fuerza igual.
+  if (isProduction && process.env.SEED_FORCE !== 'true' && (await prisma.user.count()) > 0) {
+    console.log('🌱 Base ya inicializada: se omite el seed.');
+    return;
+  }
+
   console.log('🌱 Iniciando carga de datos iniciales (Seed)...');
 
   // 1. Configuración de la Empresa (global, no por sucursal)
@@ -48,30 +95,23 @@ async function main() {
   });
 
   // 3. Usuarios Iniciales
-  const adminPasswordHash = await bcrypt.hash('admin123', 10);
-  const vendedorPasswordHash = await bcrypt.hash('vendedor123', 10);
-
-  const admin = await prisma.user.upsert({
-    where: { username: 'admin' },
-    update: {},
-    create: {
-      username: 'admin',
-      name: 'Administrador Principal',
-      passwordHash: adminPasswordHash,
-      role: 'ADMIN',
-    },
+  const admin = await ensureUser({
+    username: 'admin',
+    name: 'Administrador Principal',
+    role: 'ADMIN',
+    passwordEnv: 'SEED_ADMIN_PASSWORD',
+    devPassword: 'admin123',
   });
 
-  const vendedor = await prisma.user.upsert({
-    where: { username: 'vendedor' },
-    update: {},
-    create: {
-      username: 'vendedor',
-      name: 'Vendedor Mostrador',
-      passwordHash: vendedorPasswordHash,
-      role: 'VENDEDOR',
-    },
-  });
+  const vendedor = withDemoData
+    ? await ensureUser({
+        username: 'vendedor',
+        name: 'Vendedor Mostrador',
+        role: 'VENDEDOR',
+        passwordEnv: 'SEED_VENDEDOR_PASSWORD',
+        devPassword: 'vendedor123',
+      })
+    : null;
 
   // Admin no necesita asociación explícita (ve todas las sucursales),
   // pero se la asignamos igual para que aparezca en listados de "sucursales asignadas".
@@ -84,11 +124,13 @@ async function main() {
   }
 
   // El vendedor demo queda asignado solo al Local Central
-  await prisma.userSucursal.upsert({
-    where: { userId_sucursalId: { userId: vendedor.id, sucursalId: sucursalCentral.id } },
-    update: {},
-    create: { userId: vendedor.id, sucursalId: sucursalCentral.id },
-  });
+  if (vendedor) {
+    await prisma.userSucursal.upsert({
+      where: { userId_sucursalId: { userId: vendedor.id, sucursalId: sucursalCentral.id } },
+      update: {},
+      create: { userId: vendedor.id, sucursalId: sucursalCentral.id },
+    });
+  }
 
   // 4. Cliente Consumidor Final
   await prisma.customer.upsert({
@@ -101,6 +143,12 @@ async function main() {
       priceList: 'RETAIL',
     },
   });
+
+  // Lo que sigue es catálogo de ejemplo: en producción solo con SEED_DEMO_DATA=true.
+  if (!withDemoData) {
+    console.log('✅ Datos esenciales cargados (sin catálogo de ejemplo).');
+    return;
+  }
 
   // 5. Categorías de Ejemplo
   const catDetergentes = await prisma.category.upsert({
@@ -213,10 +261,15 @@ async function main() {
       [sucursalCentral, stockCentral],
       [sucursalFelixSanMartin, stockFelix],
     ] as const) {
-      await prisma.productStock.upsert({
+      // El movimiento de "stock inicial" solo se registra al crear la fila de stock: así
+      // volver a correr el seed no duplica movimientos en el historial.
+      const existingStock = await prisma.productStock.findUnique({
         where: { productId_sucursalId: { productId: p.id, sucursalId: sucursal.id } },
-        update: {},
-        create: {
+      });
+      if (existingStock) continue;
+
+      await prisma.productStock.create({
+        data: {
           productId: p.id,
           sucursalId: sucursal.id,
           currentStock: stock,

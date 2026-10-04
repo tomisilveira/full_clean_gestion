@@ -7,12 +7,20 @@
 :: Requiere que pg_dump.exe este en el PATH (se instala junto con PostgreSQL,
 :: normalmente en "C:\Program Files\PostgreSQL\<version>\bin").
 :: Ajustar las variables debajo segun el entorno (local o servidor remoto).
+::
+:: La contrasena NO va en este archivo (esta en un repositorio publico): definir la
+:: variable de entorno PGPASSWORD en el sistema (o en la tarea programada) antes de correrlo,
+:: o usar un archivo pgpass.conf (https://www.postgresql.org/docs/current/libpq-pgpass.html).
 
-set PGHOST=127.0.0.1
-set PGPORT=5432
-set PGUSER=fullclean_app
-set PGPASSWORD=fullclean_dev_pw
-set PGDATABASE=fullclean_dev
+if not defined PGHOST set PGHOST=127.0.0.1
+if not defined PGPORT set PGPORT=5432
+if not defined PGUSER set PGUSER=fullclean_app
+if not defined PGDATABASE set PGDATABASE=fullclean_dev
+
+if not defined PGPASSWORD (
+    echo [%DATE% %TIME%] ERROR: falta definir la variable de entorno PGPASSWORD.
+    exit /b 1
+)
 
 set BACKUP_DIR=%~dp0backups
 set TIMESTAMP=%DATE:~6,4%-%DATE:~3,2%-%DATE:~0,2%_%TIME:~0,2%-%TIME:~3,2%-%TIME:~6,2%
