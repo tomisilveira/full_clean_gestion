@@ -4,7 +4,8 @@ import { api } from '../services/api';
 import { Modal } from '../components/Modal';
 import { toastSuccess } from '../store/useToastStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { Users, Plus, DollarSign, History, Search, ShoppingBag, Wallet, FilePlus2 } from 'lucide-react';
+import { downloadFile } from '../utils/download';
+import { Users, Plus, DollarSign, History, Search, ShoppingBag, Wallet, FilePlus2, Download, UserX } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
   const { user } = useAuthStore();
@@ -46,6 +47,14 @@ export const CustomersPage: React.FC = () => {
       return (await api.get(`/customers/${selectedCustomer.id}/account`)).data;
     },
     enabled: Boolean(selectedCustomer && isHistoryModalOpen),
+  });
+
+  const anonymizeMutation = useMutation({
+    mutationFn: async (id: number) => (await api.post(`/customers/${id}/anonymize`)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toastSuccess('Datos personales del cliente eliminados.');
+    },
   });
 
   const saveCustomerMutation = useMutation({
@@ -217,6 +226,34 @@ export const CustomersPage: React.FC = () => {
                         >
                           <History className="w-4 h-4" />
                         </button>
+
+                        {/* Derechos del titular (Ley 25.326): solo ADMIN. */}
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={() => downloadFile(`/customers/${c.id}/export`, `cliente_${c.id}_datos.json`)}
+                              title="Exportar todos los datos de este cliente (derecho de acceso)"
+                              aria-label={`Exportar datos de ${c.name}`}
+                              className="p-1.5 rounded-lg bg-surface2 hover:bg-surface3 text-body transition"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            {!c.name.startsWith('Cliente anonimizado #') && (
+                              <button
+                                onClick={() => {
+                                  if (confirm(`¿Eliminar los datos personales de "${c.name}"?\n\nSe borrarán nombre, CUIT/DNI, teléfono, email y dirección. Las ventas y facturas se conservan sin identificar a la persona.\n\nEsta acción NO se puede deshacer.`)) {
+                                    anonymizeMutation.mutate(c.id);
+                                  }
+                                }}
+                                title="Eliminar datos personales (derecho de supresión)"
+                                aria-label={`Eliminar datos personales de ${c.name}`}
+                                className="p-1.5 rounded-lg bg-surface2 hover:bg-red-900/60 text-body hover:text-red-300 transition"
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

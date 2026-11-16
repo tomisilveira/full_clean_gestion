@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest, JWT_SECRET } from '../middleware/auth';
@@ -273,6 +274,47 @@ router.put('/users/:id', authenticateToken, requireRole(['ADMIN']), async (req, 
     });
 
     return res.json(updatedUser);
+  } catch (error: any) {
+    return serverError(res, error);
+  }
+});
+
+// POST /api/auth/users/:id/anonymize (ADMIN) — baja definitiva de un usuario (empleado).
+// No se borra la fila: ventas, compras y movimientos de caja/stock referencian al usuario
+// y deben conservarse. Se eliminan sus datos identificatorios (nombre, usuario de login),
+// se inutiliza la contraseña y se le quitan las sucursales. Es irreversible.
+router.post('/users/:id/anonymize', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    if (req.user?.id === id) {
+      return res.status(400).json({ error: 'No podés anonimizar tu propio usuario.' });
+    }
+
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    if (target.username.startsWith('eliminado-')) {
+      return res.status(400).json({ error: 'Este usuario ya fue anonimizado.' });
+    }
+
+    if (target.role === 'ADMIN' && target.active) {
+      const otherAdmins = await prisma.user.count({ where: { role: 'ADMIN', active: true, id: { not: id } } });
+      if (otherAdmins === 0) {
+        return res.status(400).json({ error: 'No se puede anonimizar al único administrador activo.' });
+      }
+    }
+
+    // Contraseña aleatoria que nadie conoce: el usuario ya no puede iniciar sesión.
+    const unusablePassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
+    await prisma.$transaction(async (tx) => {
+      await tx.userSucursal.deleteMany({ where: { userId: id } });
+      await tx.user.update({
+        where: { id },
+        data: { username: `eliminado-${id}`, name: 'Usuario eliminado', passwordHash: unusablePassword, active: false },
+      });
+    });
+
+    console.log(`[privacidad] Usuario #${id} anonimizado por usuario #${req.user?.id}`);
+    return res.json({ message: 'Usuario dado de baja y datos personales eliminados.', id });
   } catch (error: any) {
     return serverError(res, error);
   }

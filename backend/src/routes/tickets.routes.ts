@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
+import QRCode from 'qrcode';
 import { prisma } from '../db/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { serverError } from '../utils/errors';
@@ -91,6 +92,12 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
     const comprobanteLabel = sale.invoiceARCA
       ? (CBTE_TIPO_LABELS[sale.invoiceARCA.cbteTipo] || `COMPROBANTE TIPO ${sale.invoiceARCA.cbteTipo}`)
       : 'TICKET NO FISCAL';
+
+    // QR de ARCA generado acá (data: URL) en vez de pedirlo a api.qrserver.com: la URL del
+    // QR lleva CUIT, CAE e importe de la factura, y no hay motivo para mandársela a un tercero.
+    const qrDataUrl = sale.invoiceARCA?.afipQrUrl
+      ? await QRCode.toDataURL(sale.invoiceARCA.afipQrUrl, { width: 150, margin: 1 })
+      : '';
 
     const html = `
     <!DOCTYPE html>
@@ -205,9 +212,9 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
         <div class="text-center">
           <div class="bold">CAE: ${escapeHtml(sale.invoiceARCA.cae)}</div>
           <div>Vto CAE: ${escapeHtml(sale.invoiceARCA.caeVto)}</div>
-          ${sale.invoiceARCA.afipQrUrl ? `
+          ${qrDataUrl ? `
             <div class="qr-container">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(sale.invoiceARCA.afipQrUrl)}" alt="QR ARCA" />
+              <img src="${qrDataUrl}" alt="QR ARCA" />
             </div>
           ` : ''}
         </div>

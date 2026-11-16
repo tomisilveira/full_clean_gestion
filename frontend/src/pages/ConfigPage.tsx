@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { downloadFile } from '../utils/download';
 import { Modal } from '../components/Modal';
 import { toastSuccess } from '../store/useToastStore';
-import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2, Download, Database, KeyRound } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Building2, Users, Plus, ShieldAlert, UploadCloud, FileCheck2, Download, Database, KeyRound, UserX } from 'lucide-react';
 
 type Tab = 'empresa' | 'sucursales' | 'usuarios' | 'exportar';
 
@@ -599,6 +599,14 @@ const UsuariosTab: React.FC = () => {
     },
   });
 
+  const anonymizeMutation = useMutation({
+    mutationFn: async (id: number) => (await api.post(`/auth/users/${id}/anonymize`)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usersAdmin'] });
+      toastSuccess('Usuario dado de baja y datos personales eliminados.');
+    },
+  });
+
   const toggleSucursal = (id: number) => {
     setSucursalIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -621,6 +629,20 @@ const UsuariosTab: React.FC = () => {
             >
               <KeyRound className="w-4 h-4" />
             </button>
+            {!String(u.username).startsWith('eliminado-') && (
+              <button
+                onClick={() => {
+                  if (confirm(`¿Dar de baja definitivamente a ${u.name}?\n\nSe borrarán su nombre y usuario de acceso y ya no podrá iniciar sesión. Sus ventas y operaciones se conservan como "Usuario eliminado".\n\nEsta acción NO se puede deshacer.`)) {
+                    anonymizeMutation.mutate(u.id);
+                  }
+                }}
+                title="Dar de baja y eliminar datos personales"
+                aria-label={`Dar de baja a ${u.name}`}
+                className="p-1.5 rounded-lg bg-surface2 hover:bg-red-900/60 text-secondary hover:text-red-300 transition"
+              >
+                <UserX className="w-4 h-4" />
+              </button>
+            )}
             <span className={`text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ${u.active ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-400'}`}>
               {u.active ? 'Activo' : 'Inactivo'}
             </span>

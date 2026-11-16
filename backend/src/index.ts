@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import authRoutes from './routes/auth.routes';
+import publicRoutes from './routes/public.routes';
 import sucursalRoutes from './routes/sucursales.routes';
 import categoryRoutes from './routes/categories.routes';
 import productRoutes from './routes/products.routes';
@@ -52,8 +53,8 @@ if (trustProxyEnv !== undefined && trustProxyEnv !== '') {
 // Cabeceras de seguridad (HSTS, X-Content-Type-Options, X-Frame-Options, etc.) y CSP.
 // La CSP parte de los valores por defecto de helmet (default-src 'self', sin scripts
 // inline, object-src 'none', frame-ancestors 'self') y solo abre lo que la app usa:
-//  - Google Fonts (hoja de estilos y archivos de fuente) en index.html.
-//  - Imágenes por https: (logo configurable de la empresa, QR de ARCA vía api.qrserver.com).
+//  - Imágenes por https: (logo de la empresa, configurable con una URL externa). El QR de
+//    ARCA ya se genera en el servidor (data: URL), sin servicios de terceros.
 // upgrade-insecure-requests solo en producción: en http://localhost rompería las llamadas
 // a la API al forzarlas a https.
 app.use(
@@ -61,8 +62,8 @@ app.use(
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
-        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
         'connect-src': ["'self'"],
         'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null,
@@ -88,6 +89,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // API Routes
+app.use('/api/public', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/sucursales', sucursalRoutes);
 app.use('/api/categories', categoryRoutes);

@@ -7,6 +7,8 @@ import { parseBody, parseId, optionalText } from '../utils/validation';
 
 const router = Router();
 
+const ANONYMIZED_PREFIX = 'Cliente anonimizado #';
+
 // Datos personales de clientes: se limita el largo y el formato de cada campo (antes se
 // guardaba cualquier cosa que llegara en el body, incluso objetos o textos enormes).
 const customerSchema = z.object({
@@ -191,6 +193,86 @@ router.post('/:id/payments', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
     });
 
     return res.json(result);
+  } catch (error: any) {
+    return serverError(res, error);
+  }
+});
+
+// GET /api/customers/:id/export (ADMIN) — copia de TODOS los datos personales y de
+// operaciones de un cliente en JSON (derecho de acceso, Ley 25.326 art. 14). Se entrega al
+// titular que lo solicita; por eso es ADMIN-only y queda registrado en el log.
+router.get('/:id/export', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const customer = await prisma.customer.findUnique({
+      where: { id },
+      include: {
+        accountMovements: { orderBy: { createdAt: 'asc' } },
+        sales: { include: { items: true, payments: true, invoiceARCA: true }, orderBy: { createdAt: 'asc' } },
+        budgets: { include: { items: true }, orderBy: { createdAt: 'asc' } },
+        manualInvoices: { include: { items: true, invoiceARCA: true }, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!customer) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+    console.log(`[privacidad] Exportación de datos del cliente #${id} por usuario #${req.user?.id}`);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="cliente_${id}_datos_${stamp}.json"`);
+    return res.send(
+      JSON.stringify({ exportedAt: new Date().toISOString(), customer }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2)
+    );
+  } catch (error: any) {
+    return serverError(res, error);
+  }
+});
+
+// POST /api/customers/:id/anonymize (ADMIN) — derecho de supresión. No se borra el
+// registro: las ventas, facturas y movimientos de caja deben conservarse por obligación
+// fiscal/contable. Lo que se elimina son los datos que identifican a la persona (nombre,
+// CUIT/DNI, teléfono, email, dirección), incluidos los nombres copiados en presupuestos,
+// facturas libres y notas de caja. Es irreversible. Se rechaza si el cliente tiene saldo
+// pendiente, porque la deuda necesita un deudor identificable.
+router.post('/:id/anonymize', authenticateToken, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const customer = await prisma.customer.findUnique({ where: { id } });
+    if (!customer) return res.status(404).json({ error: 'Cliente no encontrado.' });
+    if (customer.name.startsWith(ANONYMIZED_PREFIX)) {
+      return res.status(400).json({ error: 'Este cliente ya fue anonimizado.' });
+    }
+    if (Math.abs(customer.balance) > 0.005) {
+      return res.status(400).json({
+        error: 'El cliente tiene saldo en cuenta corriente. Saldá la cuenta antes de anonimizarlo.',
+      });
+    }
+
+    const newName = `${ANONYMIZED_PREFIX}${id}`;
+    const oldName = customer.name;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.customer.update({
+        where: { id },
+        data: { name: newName, cuitDni: null, phone: null, email: null, address: null },
+      });
+      await tx.budget.updateMany({ where: { customerId: id }, data: { customerName: newName } });
+      await tx.manualInvoice.updateMany({ where: { customerId: id }, data: { customerName: newName } });
+
+      // El nombre también quedó copiado en texto libre (ej. "Cobro cta. cte. cliente X").
+      // Con nombres muy cortos se omite para no reemplazar coincidencias de otras palabras.
+      if (oldName.length >= 4) {
+        const withName = { notes: { contains: oldName } };
+        for (const row of await tx.cashMovement.findMany({ where: withName, select: { id: true, notes: true } })) {
+          await tx.cashMovement.update({ where: { id: row.id }, data: { notes: row.notes!.split(oldName).join(newName) } });
+        }
+        for (const row of await tx.customerAccountMovement.findMany({ where: { customerId: id, ...withName }, select: { id: true, notes: true } })) {
+          await tx.customerAccountMovement.update({ where: { id: row.id }, data: { notes: row.notes!.split(oldName).join(newName) } });
+        }
+      }
+    });
+
+    console.log(`[privacidad] Cliente #${id} anonimizado por usuario #${req.user?.id}`);
+    return res.json({ message: 'Datos personales del cliente eliminados.', id, name: newName });
   } catch (error: any) {
     return serverError(res, error);
   }

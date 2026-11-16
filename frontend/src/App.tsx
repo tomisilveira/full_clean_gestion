@@ -16,6 +16,8 @@ import { ManualInvoicesPage } from './pages/ManualInvoicesPage';
 import { SalesPage } from './pages/SalesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ConfigPage } from './pages/ConfigPage';
+import { PrivacyPage, TermsPage, ProvidersPage } from './pages/LegalPages';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 const ProtectedLayout: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
   children,
@@ -157,7 +159,12 @@ export const App: React.FC = () => {
         }
       />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Páginas públicas: se leen sin iniciar sesión (política de privacidad, términos, proveedores). */}
+      <Route path="/privacidad" element={<PrivacyPage />} />
+      <Route path="/terminos" element={<TermsPage />} />
+      <Route path="/proveedores" element={<ProvidersPage />} />
+
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
     </>
   );

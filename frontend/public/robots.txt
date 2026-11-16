@@ -1,0 +1,3 @@
+# Aplicación privada (requiere inicio de sesión): no indexar.
+User-agent: *
+Disallow: /

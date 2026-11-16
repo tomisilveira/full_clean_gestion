@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { LegalLinks } from './LegalLayout';
 import {
   ShoppingCart,
   Package,
@@ -135,8 +136,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ open = false, onClose }) => {
           </div>
         )}
 
-        <div className="p-4 border-t border-surface2 text-xs text-muted text-center">
-          Full Clean v1.0 • {user?.name || 'Sistema'}
+        <div className="p-4 border-t border-surface2 text-xs text-muted text-center space-y-2">
+          <div>Full Clean v1.0 • {user?.name || 'Sistema'}</div>
+          <LegalLinks />
         </div>
       </aside>
     </>

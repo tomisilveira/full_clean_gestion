@@ -469,6 +469,17 @@ MP_WEBHOOK_URL=http://localhost:4000/api/mercadopago/webhook
 
 ---
 
+## ⚖️ Privacidad y datos personales (Ley 25.326)
+
+- **Páginas públicas** (sin login): `/privacidad`, `/terminos` y `/proveedores`, enlazadas desde el login y el menú lateral junto con un enlace de **Soporte** (`mailto:` al email de la empresa). Los datos de contacto salen de **Configuración → Empresa** (`GET /api/public/legal`). **Los textos son un modelo base: hacelos revisar por un abogado/a o contador/a antes de publicarlos** (`frontend/src/pages/LegalPages.tsx`).
+- **Lista de proveedores**: se edita en `frontend/src/legal/providers.ts`. Ajustá el país/región de Neon y Render a la región que realmente contrataste.
+- **Derecho de acceso** (ADMIN): botón de descarga en *Clientes* → `GET /api/customers/:id/export` (JSON con datos personales, ventas, presupuestos y movimientos del cliente).
+- **Derecho de supresión** (ADMIN): botón en *Clientes* → `POST /api/customers/:id/anonymize`. Borra nombre, CUIT/DNI, teléfono, email y dirección, también en presupuestos, facturas libres y notas de caja, pero conserva ventas y facturas (obligación fiscal). Se rechaza si el cliente tiene saldo. Para empleados: botón en *Configuración → Usuarios* → `POST /api/auth/users/:id/anonymize`.
+- **Sin terceros**: no hay cookies de seguimiento, analítica ni recursos externos (se quitó Google Fonts, que además no se usaba, y el QR de ARCA se genera en el servidor). Por eso no hace falta banner de cookies; si se agrega analítica, habrá que sumarlo con "Rechazar" tan visible como "Aceptar".
+- **Trámites que no se resuelven con código**: inscribir la base de datos de clientes ante la AAIP (Registro Nacional de Bases de Datos), definir el plazo de conservación con tu contador y, si hay usuarios de la UE, revisar las cláusulas de transferencia con el proveedor de nube.
+
+---
+
 ## 🛡️ Seguridad en Producción
 
 Ya implementado en el código:

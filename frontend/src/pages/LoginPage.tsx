@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { useAuthStore } from '../store/useAuthStore';
 import { Lock, User as UserIcon } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { LegalLinks } from '../components/LegalLayout';
 
 export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -87,6 +88,8 @@ export const LoginPage: React.FC = () => {
             {loading ? 'Ingresando...' : 'Iniciar Sesión'}
           </button>
         </form>
+
+        <LegalLinks className="mt-6 text-xs text-muted" />
       </div>
     </div>
   );
