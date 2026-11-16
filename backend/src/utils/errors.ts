@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { reportError } from './monitoring';
 
 // Error "esperado" de negocio/validación: su mensaje está escrito para el usuario final y es
 // seguro mostrarlo tal cual (ej. "Stock insuficiente..."). Cualquier otro error (Prisma,
@@ -27,7 +28,13 @@ export function serverError(res: Response, error: unknown) {
     }
   }
 
-  // Detalle completo solo en el log del servidor (no incluye el body del request).
-  console.error('Error no controlado:', error);
-  return res.status(500).json({ error: 'Error interno del servidor. Intente nuevamente.' });
+  // Detalle completo solo en el log del servidor (no incluye el body del request). El
+  // requestId (ver middleware en app.ts) permite cruzar el reclamo de un usuario con este log.
+  const requestId = String(res.getHeader('X-Request-Id') || '');
+  console.error(`Error no controlado [${requestId}]:`, error);
+  reportError(error, { requestId, source: 'api' });
+  return res.status(500).json({
+    error: 'Error interno del servidor. Intente nuevamente.',
+    requestId: requestId || undefined,
+  });
 }

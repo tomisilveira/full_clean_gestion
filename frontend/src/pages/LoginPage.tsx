@@ -43,18 +43,20 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-950/60 border border-red-800 text-red-300 text-sm rounded-xl text-center">
+          <div role="alert" className="mb-6 p-4 bg-red-950/60 border border-red-800 text-red-300 text-sm rounded-xl text-center">
             {error}
           </div>
         )}
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-body mb-1.5">Usuario</label>
+            <label htmlFor="login-username" className="block text-xs font-semibold text-body mb-1.5">Usuario</label>
             <div className="relative">
-              <UserIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <UserIcon aria-hidden="true" className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <input
+                id="login-username"
                 type="text"
+                autoComplete="username"
                 required
                 autoFocus
                 value={username}
@@ -66,11 +68,13 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-body mb-1.5">Contraseña</label>
+            <label htmlFor="login-password" className="block text-xs font-semibold text-body mb-1.5">Contraseña</label>
             <div className="relative">
-              <Lock className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Lock aria-hidden="true" className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
               <input
+                id="login-password"
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

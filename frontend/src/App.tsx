@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { Navbar } from './components/Navbar';
@@ -6,18 +6,31 @@ import { Sidebar } from './components/Sidebar';
 import { SucursalGate } from './components/SucursalGate';
 import { Toaster } from './components/Toaster';
 import { LoginPage } from './pages/LoginPage';
-import { PosPage } from './pages/PosPage';
-import { ProductsPage } from './pages/ProductsPage';
-import { CashPage } from './pages/CashPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { SuppliersPage } from './pages/SuppliersPage';
-import { BudgetsPage } from './pages/BudgetsPage';
-import { ManualInvoicesPage } from './pages/ManualInvoicesPage';
-import { SalesPage } from './pages/SalesPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { ConfigPage } from './pages/ConfigPage';
-import { PrivacyPage, TermsPage, ProvidersPage } from './pages/LegalPages';
 import { NotFoundPage } from './pages/NotFoundPage';
+
+// Carga diferida por pantalla (code splitting): el bundle único pesaba ~510 kB y se
+// descargaba completo hasta para ver el login. Ahora cada página se baja recién al entrar.
+// Las páginas exportan por nombre, de ahí el `.then(m => ({ default: ... }))`.
+const PosPage = lazy(() => import('./pages/PosPage').then((m) => ({ default: m.PosPage })));
+const ProductsPage = lazy(() => import('./pages/ProductsPage').then((m) => ({ default: m.ProductsPage })));
+const CashPage = lazy(() => import('./pages/CashPage').then((m) => ({ default: m.CashPage })));
+const CustomersPage = lazy(() => import('./pages/CustomersPage').then((m) => ({ default: m.CustomersPage })));
+const SuppliersPage = lazy(() => import('./pages/SuppliersPage').then((m) => ({ default: m.SuppliersPage })));
+const BudgetsPage = lazy(() => import('./pages/BudgetsPage').then((m) => ({ default: m.BudgetsPage })));
+const ManualInvoicesPage = lazy(() => import('./pages/ManualInvoicesPage').then((m) => ({ default: m.ManualInvoicesPage })));
+const SalesPage = lazy(() => import('./pages/SalesPage').then((m) => ({ default: m.SalesPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const ConfigPage = lazy(() => import('./pages/ConfigPage').then((m) => ({ default: m.ConfigPage })));
+const PrivacyPage = lazy(() => import('./pages/LegalPages').then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import('./pages/LegalPages').then((m) => ({ default: m.TermsPage })));
+const ProvidersPage = lazy(() => import('./pages/LegalPages').then((m) => ({ default: m.ProvidersPage })));
+
+// Estado de carga mientras baja el código de una pantalla.
+const PageLoading: React.FC = () => (
+  <div role="status" aria-live="polite" className="min-h-[40vh] flex items-center justify-center text-sm text-secondary">
+    Cargando…
+  </div>
+);
 
 const ProtectedLayout: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
   children,
@@ -66,6 +79,7 @@ export const App: React.FC = () => {
   return (
     <>
     <Toaster />
+    <Suspense fallback={<PageLoading />}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
@@ -166,6 +180,7 @@ export const App: React.FC = () => {
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    </Suspense>
     </>
   );
 };

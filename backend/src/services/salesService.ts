@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma';
+import { randomUUID } from 'crypto';
 import { ValidationError } from '../utils/errors';
 
 // Errores de validación de negocio (carrito vacío, caja cerrada, pago mal formado, etc.):
@@ -117,13 +118,14 @@ export async function createSale(params: CreateSaleParams) {
     }
   }
 
-  const count = await prisma.sale.count();
-  const saleNumber = `VTA-${(count + 1).toString().padStart(8, '0')}`;
-
   return prisma.$transaction(async (tx) => {
-    const sale = await tx.sale.create({
+    // El número de venta se deriva del id autoincremental (único por construcción) en vez de
+    // `count() + 1`: con ventas simultáneas (varias cajas/sucursales) dos requests leían el
+    // mismo count, generaban el mismo número y una de las ventas fallaba por duplicado.
+    // Se crea con un número provisional único y se reemplaza apenas se conoce el id.
+    const created = await tx.sale.create({
       data: {
-        saleNumber,
+        saleNumber: `PEND-${randomUUID()}`,
         sucursalId,
         sessionId: activeSession.id,
         customerId: customerId ? parseInt(customerId as string) : null,
@@ -148,19 +150,28 @@ export async function createSale(params: CreateSaleParams) {
       },
       include: { items: true, payments: true, customer: true },
     });
+    const sale = await tx.sale.update({
+      where: { id: created.id },
+      data: { saleNumber: `VTA-${created.id.toString().padStart(8, '0')}` },
+      include: { items: true, payments: true, customer: true },
+    });
 
     for (const item of formattedItems) {
-      const stockRow = await tx.productStock.upsert({
-        where: { productId_sucursalId: { productId: item.productId, sucursalId } },
+      const stockKey = { productId_sucursalId: { productId: item.productId, sucursalId } };
+      // Se asegura que exista la fila de stock y se descuenta con un UPDATE atómico
+      // (`currentStock = currentStock - n`). Antes se leía el stock, se restaba en JS y se
+      // guardaba el resultado: dos ventas simultáneas del mismo producto leían el mismo
+      // valor y una de las dos bajas se perdía (el stock quedaba más alto que el real).
+      await tx.productStock.upsert({
+        where: stockKey,
         update: {},
         create: { productId: item.productId, sucursalId, currentStock: 0, minStock: 5 },
       });
-
-      const newStock = stockRow.currentStock - item.quantity;
-      await tx.productStock.update({
-        where: { productId_sucursalId: { productId: item.productId, sucursalId } },
-        data: { currentStock: newStock },
+      const stockRow = await tx.productStock.update({
+        where: stockKey,
+        data: { currentStock: { decrement: item.quantity } },
       });
+      const newStock = stockRow.currentStock;
 
       await tx.stockMovement.create({
         data: {
@@ -168,7 +179,7 @@ export async function createSale(params: CreateSaleParams) {
           sucursalId,
           movementType: 'SALE',
           quantity: item.quantity,
-          previousStock: stockRow.currentStock,
+          previousStock: newStock + item.quantity,
           newStock,
           reason: budgetId ? `Venta #${sale.saleNumber} (desde presupuesto #${budgetId})` : `Venta #${sale.saleNumber}`,
           userId,
@@ -188,11 +199,12 @@ export async function createSale(params: CreateSaleParams) {
         const customer = await tx.customer.findUnique({ where: { id: parseInt(customerId as string) } });
         if (!customer) throw new ValidationError('Cliente no encontrado.');
 
-        const newCustomerBalance = customer.balance + pAmount;
-        await tx.customer.update({
+        // Incremento atómico (ver nota del stock): evita perder cargos concurrentes al saldo.
+        const updatedCustomer = await tx.customer.update({
           where: { id: customer.id },
-          data: { balance: newCustomerBalance },
+          data: { balance: { increment: pAmount } },
         });
+        const newCustomerBalance = updatedCustomer.balance;
 
         await tx.customerAccountMovement.create({
           data: {

@@ -21,6 +21,13 @@ export const DATA_PROVIDERS: DataProvider[] = [
     data: 'Datos en tránsito entre el navegador y el servidor, y registros técnicos del servidor.',
     country: 'Según la región elegida al crear el servicio (Estados Unidos, Unión Europea o Singapur).',
   },
+  // Si configurás SENTRY_DSN (monitoreo de errores, ver OPERACIONES.md), descomentá esta entrada:
+  // {
+  //   name: 'Sentry (Functional Software, Inc.)',
+  //   role: 'Monitoreo de errores técnicos de la aplicación.',
+  //   data: 'Mensaje y traza técnica del error. No se envían datos personales, cuerpos de solicitudes, cabeceras ni cookies.',
+  //   country: 'Estados Unidos o Unión Europea, según la región del proyecto.',
+  // },
   {
     name: 'Mercado Pago (MercadoLibre S.R.L.)',
     role: 'Procesamiento de cobros electrónicos, cuando se usa ese medio de pago.',

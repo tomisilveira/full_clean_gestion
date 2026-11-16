@@ -10,6 +10,7 @@ function fakeRes() {
   const res: any = { statusCode: 0, body: undefined };
   res.status = (c: number) => { res.statusCode = c; return res; };
   res.json = (b: unknown) => { res.body = b; return res; };
+  res.getHeader = (name: string) => (name === 'X-Request-Id' ? 'req-test-1' : undefined);
   return res;
 }
 
@@ -21,6 +22,8 @@ describe('serverError: no filtra mensajes internos', () => {
     expect(res.statusCode).toBe(500);
     expect(JSON.stringify(res.body)).not.toContain('SELECT');
     expect(JSON.stringify(res.body)).not.toContain('User');
+    // el usuario recibe un código para pasarle a soporte
+    expect(res.body.requestId).toBe('req-test-1');
   });
 
   it('ValidationError sí muestra su mensaje (es para el usuario) con 400', () => {

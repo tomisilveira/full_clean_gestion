@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { reportClientError } from '../utils/reportError';
 
 interface State {
   hasError: boolean;
@@ -16,6 +17,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
 
   componentDidCatch(error: unknown, info: React.ErrorInfo) {
     console.error('Error de interfaz no controlado:', error, info.componentStack);
+    reportClientError(error, info.componentStack ?? undefined);
   }
 
   render() {

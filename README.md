@@ -385,10 +385,16 @@ backup.bat
 
 ```bash
 cd backend
-npm test
+npm test                    # unitarios: rápidos, sin base de datos
+npm run test:integration    # integración: API real contra una base PostgreSQL descartable
+npm run backup:verify       # comprueba que un backup se puede restaurar de verdad
 ```
 
-Cubre lógica crítica: cálculo de precio/IVA, descuentos por monto/porcentaje, arqueo de caja, movimientos de stock, stock independiente por sucursal, desglose y total de stock por sede, transferencias entre sucursales, aislamiento de caja por sucursal, y numeración de comprobantes ARCA por punto de venta de sucursal.
+- **Unitarios** (`src/__tests__/business.test.ts`, `security.test.ts`): reglas de cálculo (precio, IVA, descuentos, arqueo, stock) y utilidades de seguridad (errores, validación, firma del webhook de Mercado Pago). Ojo: los de `business.test.ts` verifican la *aritmética* de las reglas, no llaman al código de las rutas; la cobertura real de los flujos está en los de integración.
+- **Integración** (`src/__tests__/integration/flows.test.ts`): levantan la app de Express completa y recorren los flujos principales de punta a punta: login y roles, caja → venta → anulación → cierre, aislamiento por sucursal, ventas simultáneas (número de venta y stock sin pérdidas), exportación, usuarios y derechos de privacidad de clientes. Crean una base `<tu_base>_test` (con todas las migraciones desde cero) y la borran al terminar; **nunca tocan tu base de desarrollo**. Necesitan PostgreSQL y que el usuario pueda crear bases de datos.
+- No hay tests automáticos de la interfaz ni de la emisión real contra ARCA/Mercado Pago (dependen de servicios externos).
+
+Ver también [`OPERACIONES.md`](OPERACIONES.md): monitoreo, backups, rollback y permisos de la base de datos.
 
 ---
 

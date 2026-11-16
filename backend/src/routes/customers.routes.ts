@@ -151,12 +151,14 @@ router.post('/:id/payments', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
     if (!customer) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
     const result = await prisma.$transaction(async (tx) => {
-      // Payment reduces customer debt (or increases credit balance)
-      const newBalance = customer.balance - paymentAmount;
+      // Payment reduces customer debt (or increases credit balance). Decremento atómico:
+      // el saldo leído antes de la transacción podía estar desactualizado si otra caja
+      // cobraba o vendía a cuenta corriente al mismo tiempo, y se pisaba ese cambio.
       const updatedCustomer = await tx.customer.update({
         where: { id: customerId },
-        data: { balance: newBalance },
+        data: { balance: { decrement: paymentAmount } },
       });
+      const newBalance = updatedCustomer.balance;
 
       const movement = await tx.customerAccountMovement.create({
         data: {

@@ -138,11 +138,12 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
           create: { productId: item.productId, sucursalId: sale.sucursalId, currentStock: 0, minStock: 5 },
         });
 
-        const newStock = stockRow.currentStock + item.quantity;
-        await tx.productStock.update({
+        // Incremento atómico: ver la nota en services/salesService.ts sobre el stock.
+        const restored = await tx.productStock.update({
           where: { productId_sucursalId: { productId: item.productId, sucursalId: sale.sucursalId } },
-          data: { currentStock: newStock },
+          data: { currentStock: { increment: item.quantity } },
         });
+        const newStock = restored.currentStock;
 
         await tx.stockMovement.create({
           data: {
@@ -150,7 +151,7 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
             sucursalId: sale.sucursalId,
             movementType: 'SALE_CANCEL',
             quantity: item.quantity,
-            previousStock: stockRow.currentStock,
+            previousStock: newStock - item.quantity,
             newStock,
             reason: `Anulación de Venta #${sale.saleNumber}`,
             userId: req.user!.id,
@@ -163,11 +164,11 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
         if (p.paymentMethod === 'CURRENT_ACCOUNT' && sale.customerId) {
           const cust = await tx.customer.findUnique({ where: { id: sale.customerId } });
           if (cust) {
-            const newBal = cust.balance - p.amount;
-            await tx.customer.update({
+            const updatedCust = await tx.customer.update({
               where: { id: cust.id },
-              data: { balance: newBal },
+              data: { balance: { decrement: p.amount } },
             });
+            const newBal = updatedCust.balance;
 
             await tx.customerAccountMovement.create({
               data: {

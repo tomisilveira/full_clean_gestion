@@ -4,9 +4,12 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { installGlobalErrorReporting } from './utils/reportError';
 import { toastError } from './store/useToastStore';
 import './store/useThemeStore'; // aplica el tema guardado (o el del sistema) antes del primer render
 import './index.css';
+
+installGlobalErrorReporting();
 
 const queryClient = new QueryClient({
   // MutationCache.onError corre SIEMPRE que una mutación falla, incluso si la página que
