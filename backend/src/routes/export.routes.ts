@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { toCsv, csvFilename } from '../utils/csv';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -44,7 +45,7 @@ router.get('/customers.csv', async (req, res) => {
       { key: 'createdAt', label: 'Fecha de Alta' },
     ]);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -66,7 +67,7 @@ router.get('/suppliers.csv', async (req, res) => {
       { key: 'createdAt', label: 'Fecha de Alta' },
     ]);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -100,7 +101,7 @@ router.get('/products.csv', async (req, res) => {
       { key: 'active', label: 'Activo' },
     ]);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -149,7 +150,7 @@ router.get('/sales.csv', async (req, res) => {
       { key: 'status', label: 'Estado' },
     ]);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -191,7 +192,7 @@ router.get('/purchases.csv', async (req, res) => {
       { key: 'status', label: 'Estado' },
     ]);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -239,7 +240,7 @@ router.get('/full', async (req, res) => {
     // se serializa a string.
     return res.send(JSON.stringify(payload, (_key, value) => (typeof value === 'bigint' ? value.toString() : value), 2));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

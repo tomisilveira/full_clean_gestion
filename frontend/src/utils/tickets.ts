@@ -17,11 +17,29 @@ export async function openTicketPreview(saleId: number) {
     win.document.open();
     win.document.write(res.data);
     win.document.close();
+    // La ventana hereda la CSP de la app (sin scripts inline), así que el ticket ya no trae
+    // onload/onclick: se enganchan los botones desde acá y se dispara la impresión.
+    win.document.getElementById('btn-print')?.addEventListener('click', () => win.print());
+    win.document.getElementById('btn-close')?.addEventListener('click', () => win.close());
+    // Imprimir recién al terminar de cargar (logo y QR son imágenes externas), como hacía
+    // el onload="window.print()" original.
+    win.addEventListener('load', () => {
+      win.focus();
+      win.print();
+    });
   } catch (err: any) {
-    win.document.open();
-    win.document.write(`<pre>Error al generar el ticket: ${err.response?.data || err.message}</pre>`);
-    win.document.close();
+    showWindowError(win, 'Error al generar el ticket', err.response?.data || err.message);
   }
+}
+
+// Escribe un mensaje de error en la ventana como TEXTO (textContent), nunca como HTML: el
+// mensaje puede venir del servidor y la ventana comparte origen con la app (y su token).
+function showWindowError(win: Window, title: string, detail: unknown) {
+  win.document.open();
+  win.document.write('<pre id="err"></pre>');
+  win.document.close();
+  const pre = win.document.getElementById('err');
+  if (pre) pre.textContent = `${title}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`;
 }
 
 // Mismo problema que el ticket: el endpoint de PDF exige el JWT por header, y un <a href
@@ -52,9 +70,7 @@ export async function openBudgetPdf(budgetId: number) {
         // si no se puede parsear, se usa err.message tal cual
       }
     }
-    win.document.open();
-    win.document.write(`<pre>Error al generar el presupuesto: ${message}</pre>`);
-    win.document.close();
+    showWindowError(win, 'Error al generar el presupuesto', message);
   }
 }
 
@@ -81,8 +97,6 @@ export async function openManualInvoicePdf(invoiceId: number) {
         // si no se puede parsear, se usa err.message tal cual
       }
     }
-    win.document.open();
-    win.document.write(`<pre>Error al generar la factura: ${message}</pre>`);
-    win.document.close();
+    showWindowError(win, 'Error al generar la factura', message);
   }
 }

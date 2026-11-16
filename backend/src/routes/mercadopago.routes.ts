@@ -1,15 +1,34 @@
 import { Router, Request, Response } from 'express';
+import { isValidWebhookSignature } from '../utils/mpWebhook';
 import { MercadoPagoConfig, Preference, Payment as MPPayment } from 'mercadopago';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireSucursal, AuthRequest } from '../middleware/auth';
+import { serverError, ValidationError } from '../utils/errors';
 
 const router = Router();
 
-// Helper to initialize Mercado Pago Client
+// Helper to initialize Mercado Pago Client. Antes caía a un token de prueba inventado si
+// faltaba MP_ACCESS_TOKEN, lo que escondía la mala configuración hasta que MP rechazaba la
+// llamada con un error confuso: ahora falla explícitamente.
 function getMPClient() {
-  const token = process.env.MP_ACCESS_TOKEN || 'TEST-0000000000000000-000000-00000000000000000000000000000000-000000000';
+  const token = process.env.MP_ACCESS_TOKEN;
+  if (!token) {
+    throw new ValidationError('Mercado Pago no está configurado en el servidor (falta MP_ACCESS_TOKEN).');
+  }
   return new MercadoPagoConfig({ accessToken: token });
 }
+
+// URL pública de la app, para los back_urls del checkout. Antes estaba fija en
+// http://localhost:5173, así que en producción el comprador volvía a una dirección inexistente.
+function getAppBaseUrl(): string {
+  const explicit = process.env.APP_URL || (process.env.FRONTEND_URL || '').split(',')[0].trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    throw new ValidationError('Falta definir APP_URL (URL pública de la aplicación) para usar Mercado Pago.');
+  }
+  return 'http://localhost:5173';
+}
+
 
 // POST /api/mercadopago/preference (Create Checkout Pro Link or QR data for sale)
 // La venta se identifica por saleId (external_reference) para poder conciliarla luego vía webhook.
@@ -20,6 +39,7 @@ router.post('/preference', authenticateToken, requireSucursal, async (req: AuthR
 
     const client = getMPClient();
     const preference = new Preference(client);
+    const appUrl = getAppBaseUrl();
 
     const body = {
       items: [
@@ -32,13 +52,13 @@ router.post('/preference', authenticateToken, requireSucursal, async (req: AuthR
         },
       ],
       back_urls: {
-        success: 'http://localhost:5173/sales?mp_status=success',
-        failure: 'http://localhost:5173/sales?mp_status=failure',
-        pending: 'http://localhost:5173/sales?mp_status=pending',
+        success: `${appUrl}/sales?mp_status=success`,
+        failure: `${appUrl}/sales?mp_status=failure`,
+        pending: `${appUrl}/sales?mp_status=pending`,
       },
       auto_return: 'approved',
       external_reference: saleId ? saleId.toString() : undefined,
-      notification_url: process.env.MP_WEBHOOK_URL || 'http://localhost:4000/api/mercadopago/webhook',
+      notification_url: process.env.MP_WEBHOOK_URL || `http://localhost:${process.env.PORT || 4000}/api/mercadopago/webhook`,
     };
 
     const response = await preference.create({ body });
@@ -49,7 +69,7 @@ router.post('/preference', authenticateToken, requireSucursal, async (req: AuthR
       sandbox_init_point: response.sandbox_init_point,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -58,6 +78,11 @@ router.post('/preference', authenticateToken, requireSucursal, async (req: AuthR
 // re-consultar el pago con nuestro Access Token en vez de confiar en el body de la notificación.
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
+    if (!isValidWebhookSignature(req, process.env.MP_WEBHOOK_SECRET)) {
+      console.warn('⚠️ Webhook de Mercado Pago rechazado: firma x-signature inválida.');
+      return res.status(401).send('Firma inválida');
+    }
+
     const { type, data } = req.body;
     console.log('🔔 Mercado Pago Webhook Notificación:', type, data);
 
@@ -128,7 +153,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     return res.status(200).send('OK');
   } catch (error: any) {
     console.error('Error procesando webhook de Mercado Pago:', error);
-    return res.status(500).send(error.message);
+    return res.status(500).send('Error procesando la notificación.');
   }
 });
 

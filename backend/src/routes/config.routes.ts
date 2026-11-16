@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     return res.json(config);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -77,7 +78,7 @@ router.put('/', authenticateToken, requireRole(['ADMIN']), async (req, res) => {
 
     return res.json(config);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -95,7 +96,7 @@ router.get('/arca-cert/status', authenticateToken, requireRole(['ADMIN']), (req,
       },
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -127,7 +128,7 @@ router.post(
         },
       });
     } catch (error: any) {
-      return res.status(500).json({ error: error.message });
+      return serverError(res, error);
     }
   }
 );

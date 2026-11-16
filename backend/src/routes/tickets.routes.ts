@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import { prisma } from '../db/prisma';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -138,10 +139,12 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
         }
       </style>
     </head>
-    <body onload="window.print()">
+    <body>
+      <!-- Sin handlers inline (onload/onclick): la CSP de la app los bloquea. El frontend
+           (utils/tickets.ts) engancha estos botones y dispara la impresión. -->
       <div class="print-bar">
-        <button onclick="window.print()">🖨️ Imprimir</button>
-        <button onclick="window.close()">Cerrar</button>
+        <button id="btn-print">🖨️ Imprimir</button>
+        <button id="btn-close">Cerrar</button>
       </div>
 
       <div class="text-center">
@@ -218,7 +221,8 @@ router.get('/sale/:id/html', authenticateToken, async (req: AuthRequest, res: Re
 
     return res.send(html);
   } catch (error: any) {
-    return res.status(500).send(error.message);
+    console.error('Error generando ticket:', error);
+    return res.status(500).send('Error interno del servidor. Intente nuevamente.');
   }
 });
 
@@ -327,7 +331,7 @@ router.post('/sale/:id/print', authenticateToken, async (req: AuthRequest, res: 
       return res.status(500).json({ error: 'Error al enviar a la impresora térmica.', details: printErr.message });
     }
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

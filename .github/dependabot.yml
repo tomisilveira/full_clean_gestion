@@ -1,0 +1,15 @@
+# Dependabot: abre PRs automáticos con actualizaciones de seguridad y de versiones.
+# El repo usa npm workspaces (backend + frontend): un único directorio raíz cubre ambos.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Parches y menores juntos en un solo PR; los cambios mayores van por separado
+      # (suelen traer cambios incompatibles y conviene revisarlos de a uno).
+      minor-and-patch:
+        update-types: [minor, patch]

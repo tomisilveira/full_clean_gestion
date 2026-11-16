@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import PDFDocument from 'pdfkit';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     });
     return res.json(invoices);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -49,7 +50,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     if (!invoice) return res.status(404).json({ error: 'Factura no encontrada.' });
     return res.json(invoice);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -104,7 +105,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     return res.status(201).json(invoice);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -185,7 +186,7 @@ router.get('/:id/pdf', async (req: AuthRequest, res: Response) => {
 
     doc.end();
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

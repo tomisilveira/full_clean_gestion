@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { serverError, ValidationError } from '../utils/errors';
 
 const router = Router();
 
@@ -109,7 +110,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     const withStock = await attachStock(products, resolveSucursalId(req));
     return res.json(withStock);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -137,7 +138,7 @@ router.get('/low-stock', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(lowStock);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -160,7 +161,7 @@ router.get('/code/:code', authenticateToken, async (req: AuthRequest, res) => {
     const [withStock] = await attachStock([product], resolveSucursalId(req));
     return res.json(withStock);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -242,7 +243,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
 
     return res.status(201).json(newProduct);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -301,7 +302,7 @@ router.post('/quick-barcode', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
 
     return res.status(201).json(product);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -343,7 +344,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async 
 
     return res.json(updated);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -362,7 +363,7 @@ router.put('/:id/min-stock', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
 
     return res.json(updated);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -422,7 +423,7 @@ router.post('/:id/movement', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
 
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -451,7 +452,7 @@ router.post('/:id/transfer', authenticateToken, requireRole(['ADMIN']), async (r
       });
 
       if (originStock.currentStock < qty) {
-        throw new Error(`Stock insuficiente en la sucursal de origen (disponible: ${originStock.currentStock}).`);
+        throw new ValidationError(`Stock insuficiente en la sucursal de origen (disponible: ${originStock.currentStock}).`);
       }
 
       const destStock = await tx.productStock.upsert({
@@ -505,7 +506,7 @@ router.post('/:id/transfer', authenticateToken, requireRole(['ADMIN']), async (r
 
     return res.status(201).json(result);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -527,7 +528,7 @@ router.get('/:id/movements', authenticateToken, async (req: AuthRequest, res) =>
     });
     return res.json(movements);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

@@ -36,12 +36,40 @@ const PORT = process.env.PORT || 4000;
 const allowedOrigins = (process.env.FRONTEND_URL || '').split(',').map((o) => o.trim()).filter(Boolean);
 app.use(cors(allowedOrigins.length > 0 ? { origin: allowedOrigins } : {}));
 
-// Cabeceras de seguridad (X-Content-Type-Options, X-Frame-Options contra clickjacking,
-// Strict-Transport-Security, etc.). Se deja contentSecurityPolicy desactivada: el CSP por
-// defecto de helmet es pensado para apps que sirven todo desde el mismo origen con
-// políticas estrictas de antemano, y podría romper el bundle de Vite (fonts, QR de AFIP
-// embebido como <img> a api.qrserver.com, etc.) sin haberlo probado a fondo primero.
-app.use(helmet({ contentSecurityPolicy: false }));
+// Detrás de un proxy inverso (Render, Nginx, etc.) req.ip sería la IP del proxy para TODOS
+// los usuarios: el límite de requests y el de intentos de login se compartirían entre todos
+// y un solo usuario podría bloquear al resto. Con "trust proxy" Express toma la IP real del
+// cliente de X-Forwarded-For. Por defecto: 1 salto en producción (Render), ninguno en
+// desarrollo (donde un cliente podría falsificar el header). Se puede ajustar con TRUST_PROXY
+// (número de saltos, o false para desactivarlo).
+const trustProxyEnv = process.env.TRUST_PROXY;
+if (trustProxyEnv !== undefined && trustProxyEnv !== '') {
+  app.set('trust proxy', /^\d+$/.test(trustProxyEnv) ? Number(trustProxyEnv) : trustProxyEnv === 'true' ? 1 : false);
+} else if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
+// Cabeceras de seguridad (HSTS, X-Content-Type-Options, X-Frame-Options, etc.) y CSP.
+// La CSP parte de los valores por defecto de helmet (default-src 'self', sin scripts
+// inline, object-src 'none', frame-ancestors 'self') y solo abre lo que la app usa:
+//  - Google Fonts (hoja de estilos y archivos de fuente) en index.html.
+//  - Imágenes por https: (logo configurable de la empresa, QR de ARCA vía api.qrserver.com).
+// upgrade-insecure-requests solo en producción: en http://localhost rompería las llamadas
+// a la API al forzarlas a https.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+        'connect-src': ["'self'"],
+        'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null,
+      },
+    },
+  })
+);
 
 app.use(express.json());
 

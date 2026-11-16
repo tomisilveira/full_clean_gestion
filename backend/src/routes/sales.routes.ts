@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
 import { createSale, ValidationError } from '../services/salesService';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(sales);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -84,7 +85,7 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(sale);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -104,7 +105,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requireS
     return res.status(201).json(sale);
   } catch (error: any) {
     if (error instanceof ValidationError) return res.status(400).json({ error: error.message });
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -187,7 +188,7 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
 
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

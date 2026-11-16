@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -98,7 +99,7 @@ router.get('/current', authenticateToken, requireSucursal, async (req: AuthReque
       totals: report?.totals,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -129,7 +130,7 @@ router.post('/open', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), requ
 
     return res.status(201).json(session);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -175,7 +176,7 @@ router.post('/close', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), req
       summary: report?.totals,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -211,7 +212,7 @@ router.post('/movement', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), 
 
     return res.status(201).json(movement);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -235,7 +236,7 @@ router.get('/history', authenticateToken, async (req: AuthRequest, res) => {
     });
     return res.json(sessions);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -254,7 +255,7 @@ router.get('/session/:id/report', authenticateToken, async (req: AuthRequest, re
 
     return res.json(report);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

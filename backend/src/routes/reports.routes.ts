@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -66,7 +67,7 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
       totalCustomerBalance: customerDebts._sum.balance || 0,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -145,7 +146,7 @@ router.get('/sales', async (req: AuthRequest, res) => {
       bySucursal: Object.values(sucursalSalesMap),
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -186,7 +187,7 @@ router.get('/profitability', async (req: AuthRequest, res) => {
 
     return res.json(itemsProfitability);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -227,7 +228,7 @@ router.get('/stock-value', async (req: AuthRequest, res) => {
       bySucursal: Object.values(bySucursalMap),
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -278,7 +279,7 @@ router.get('/cash-summary', async (req: AuthRequest, res) => {
       sessionsCount: sessions.length,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

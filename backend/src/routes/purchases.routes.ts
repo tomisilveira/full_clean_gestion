@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -38,7 +39,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(purchases);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -64,7 +65,7 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(purchase);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -140,7 +141,7 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
 
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

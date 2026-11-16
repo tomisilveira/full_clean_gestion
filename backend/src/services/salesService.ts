@@ -1,9 +1,11 @@
 import { prisma } from '../db/prisma';
+import { ValidationError } from '../utils/errors';
 
 // Errores de validación de negocio (carrito vacío, caja cerrada, pago mal formado, etc.):
 // se distinguen de errores inesperados para que las rutas que llaman a createSale() puedan
-// devolver 400 en vez de 500 sin tener que duplicar cada chequeo.
-export class ValidationError extends Error {}
+// devolver 400 en vez de 500 sin tener que duplicar cada chequeo. La clase vive en
+// utils/errors.ts (la usa también serverError); se re-exporta para no tocar los imports.
+export { ValidationError };
 
 const CARD_TYPES = ['Visa', 'Mastercard', 'American Express', 'Cabal', 'Naranja', 'Otra'];
 

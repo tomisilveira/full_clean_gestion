@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 import { emitArcaVoucher, getAfipClient } from '../services/arcaService';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.post('/invoice/manual/:manualInvoiceId', authenticateToken, requireRole([
     const created = await prisma.invoiceARCA.create({ data: { manualInvoiceId, ...emitted } });
     return res.status(201).json(created);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -114,7 +115,7 @@ router.post('/invoice/:saleId', authenticateToken, requireRole(['ADMIN', 'VENDED
     const invoice = await prisma.invoiceARCA.create({ data: { saleId, ...emitted } });
     return res.status(201).json(invoice);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -136,7 +137,7 @@ router.get('/last-voucher', authenticateToken, async (req, res) => {
       return res.json({ ptoVta, cbteTipo, lastVoucher: count, mock: true });
     }
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

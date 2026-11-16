@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.get('/', authenticateToken, requireRole(['ADMIN']), async (req, res) => {
     });
     return res.json(sucursales);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -36,7 +37,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), async (req, res) => 
     });
     return res.status(201).json(sucursal);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -59,7 +60,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res) =
     const sucursal = await prisma.sucursal.update({ where: { id }, data });
     return res.json(sucursal);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -73,7 +74,7 @@ router.get('/:id/usuarios', authenticateToken, requireRole(['ADMIN']), async (re
     });
     return res.json(asignaciones.map((a) => a.user));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

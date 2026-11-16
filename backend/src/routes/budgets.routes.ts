@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
 import { createSale, ValidationError } from '../services/salesService';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     });
     return res.json(budgets);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -63,7 +64,7 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     return res.json(budget);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -128,7 +129,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (r
 
     return res.status(201).json(budget);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -148,7 +149,7 @@ router.post('/:id/approve', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']
     const updated = await prisma.budget.update({ where: { id }, data: { status: 'APPROVED' } });
     return res.json(updated);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -193,7 +194,7 @@ router.post('/:id/convert', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']
     return res.json({ budget: updatedBudget, sale });
   } catch (error: any) {
     if (error instanceof ValidationError) return res.status(400).json({ error: error.message });
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -276,7 +277,7 @@ router.get('/:id/pdf', authenticateToken, async (req: AuthRequest, res) => {
 
     doc.end();
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

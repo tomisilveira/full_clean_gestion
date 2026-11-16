@@ -1,8 +1,25 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
+import { z } from 'zod';
+import { parseBody, parseId, optionalText } from '../utils/validation';
 
 const router = Router();
+
+// Datos personales de clientes: se limita el largo y el formato de cada campo (antes se
+// guardaba cualquier cosa que llegara en el body, incluso objetos o textos enormes).
+const customerSchema = z.object({
+  name: z.string().trim().min(1, 'El nombre / Razón Social del cliente es obligatorio.').max(150),
+  cuitDni: optionalText(20),
+  ivaCondition: z.string().trim().min(1).max(50).optional(),
+  phone: optionalText(40),
+  // El formulario manda '' cuando el campo está vacío.
+  email: z.union([z.literal(''), z.string().trim().email('El email no tiene un formato válido.').max(150)]).nullish(),
+  address: optionalText(250),
+  priceList: z.enum(['RETAIL', 'WHOLESALE']).optional(),
+  creditLimit: z.coerce.number().finite().min(0, 'El límite de crédito no puede ser negativo.').nullish(),
+});
 
 // GET /api/customers
 router.get('/', authenticateToken, async (req, res) => {
@@ -15,56 +32,55 @@ router.get('/', authenticateToken, async (req, res) => {
     });
     return res.json(customers);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
 // POST /api/customers
 router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (req, res) => {
   try {
-    const { name, cuitDni, ivaCondition, phone, email, address, priceList, creditLimit } = req.body;
-    if (!name) return res.status(400).json({ error: 'El nombre / Razón Social del cliente es obligatorio.' });
+    const { name, cuitDni, ivaCondition, phone, email, address, priceList, creditLimit } = parseBody(customerSchema, req.body);
 
     const customer = await prisma.customer.create({
       data: {
-        name: name.trim(),
-        cuitDni: cuitDni ? cuitDni.trim() : null,
+        name,
+        cuitDni: cuitDni || null,
         ivaCondition: ivaCondition || 'Consumidor Final',
         phone,
         email,
         address,
         priceList: priceList || 'RETAIL',
-        creditLimit: parseFloat(creditLimit || 0),
+        creditLimit: creditLimit ?? 0,
       },
     });
     return res.status(201).json(customer);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
 // PUT /api/customers/:id
 router.put('/:id', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { name, cuitDni, ivaCondition, phone, email, address, priceList, creditLimit } = req.body;
+    const id = parseId(req.params.id);
+    const { name, cuitDni, ivaCondition, phone, email, address, priceList, creditLimit } = parseBody(customerSchema.partial(), req.body);
 
     const customer = await prisma.customer.update({
       where: { id },
       data: {
-        name: name?.trim(),
-        cuitDni: cuitDni ? cuitDni.trim() : null,
+        name,
+        cuitDni: cuitDni || null,
         ivaCondition,
         phone,
         email,
         address,
         priceList,
-        creditLimit: creditLimit !== undefined ? parseFloat(creditLimit) : undefined,
+        creditLimit: creditLimit ?? undefined,
       },
     });
     return res.json(customer);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -111,7 +127,7 @@ router.get('/:id/account', authenticateToken, async (req: AuthRequest, res: Resp
 
     return res.json({ customer, movements, sales, manualInvoices, summary });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -176,7 +192,7 @@ router.post('/:id/payments', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
 
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

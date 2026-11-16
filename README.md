@@ -424,6 +424,17 @@ AFIP_PRODUCTION=false
 # Mercado Pago
 MP_ACCESS_TOKEN=TEST-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxxxxxx
 MP_WEBHOOK_URL=http://localhost:4000/api/mercadopago/webhook
+# URL pública de la app (a dónde vuelve el comprador tras pagar). OBLIGATORIA en producción
+# para usar Mercado Pago; en desarrollo se asume http://localhost:5173.
+# APP_URL=https://mi-app.onrender.com
+# Clave secreta de la integración de MP (Tus integraciones → Webhooks). Si se define, se
+# valida la firma x-signature de cada notificación y se rechazan las que no la traen.
+# MP_WEBHOOK_SECRET=
+
+# Proxy inverso: cantidad de saltos de proxy delante del servidor, para tomar la IP real
+# del cliente (límites de requests/login). Por defecto 1 en producción (Render) y ninguno
+# en desarrollo. Poner 0 si el servidor está expuesto directamente a internet.
+# TRUST_PROXY=1
 ```
 
 ---
@@ -465,7 +476,14 @@ Ya implementado en el código:
 - **Sesión revalidada en cada request**: `authenticateToken` consulta el usuario en la base (activo + rol vigente), así que un token de 24 hs no sobrevive a una baja o cambio de permisos.
 - **Rate limiting**: máx. 8 intentos de login fallidos por IP+usuario cada 15 min, y 300 requests por IP cada 5 min sobre toda la API (en memoria, por proceso; si se corre con varias instancias conviene un store compartido).
 - **Aislamiento por sucursal** en listados y accesos por id (ventas, compras, presupuestos, caja, emisión ARCA), con `403` para quien no es `ADMIN`.
-- **`helmet`** para cabeceras de seguridad y **CORS** restringible con `FRONTEND_URL`.
+- **`helmet`** para cabeceras de seguridad (HSTS, X-Frame-Options, etc.) y **CORS** restringible con `FRONTEND_URL`.
+- **Content-Security-Policy** estricta: sin scripts inline, solo recursos propios más Google Fonts e imágenes por `https:`. Limita el daño de un eventual XSS (el token vive en `localStorage`). Los tickets ya no usan `onclick`/`onload`: los botones se enganchan desde el frontend.
+- **IP real detrás de proxy** (`trust proxy`, ver `TRUST_PROXY`): sin esto, en Render todos los usuarios compartirían el mismo contador de rate limit.
+- **Validación de entradas con `zod`** en login, usuarios y clientes (tipos, largos, roles permitidos, contraseña de 8 a 72 caracteres) y `:id` numéricos.
+- **Errores sin filtrar internos**: los handlers usan `serverError()` (`backend/src/utils/errors.ts`), que devuelve un mensaje genérico y deja el detalle solo en el log; solo los `ValidationError` muestran su texto. Los códigos de Prisma más comunes (duplicado, no existe, relacionado) se traducen a 409/404.
+- **Login sin filtración por tiempo**: se verifica siempre contra un hash (el real o uno descartable), así que "usuario inexistente" y "contraseña incorrecta" tardan lo mismo. Un ADMIN no puede desactivarse ni quitarse el rol a sí mismo.
+- **Webhook de Mercado Pago**: re-consulta el pago con el Access Token y, si se define `MP_WEBHOOK_SECRET`, valida la firma `x-signature`.
+- **Dependabot** (`.github/dependabot.yml`) para actualizaciones y alertas de seguridad semanales.
 - **CSV/formula injection**: las celdas exportadas que empiezan con `=`, `+`, `-` o `@` se prefijan con `'` para que Excel/Sheets no las ejecuten como fórmula.
 - **Exportación y facturación libre** restringidas a `ADMIN`.
 
@@ -477,6 +495,14 @@ Recomendaciones de despliegue:
 - Usar una contraseña fuerte para el usuario de PostgreSQL de producción (no la de desarrollo local).
 - HTTPS y firewall son responsabilidad del hosting elegido (Render los provee de forma automática con su dominio `.onrender.com`).
 - Si un deploy tuvo alguna vez un `JWT_SECRET` de ejemplo o por defecto, rotarlo (los tokens emitidos con el anterior quedan inválidos).
+- En producción definir `APP_URL` (y `MP_WEBHOOK_SECRET` si se usa Mercado Pago).
+- **Certificados de ARCA**: se guardan en `backend/certs/` del disco del servidor. En hostings con disco efímero (plan gratis de Render) se pierden en cada deploy y hay que volver a subirlos; en producción real usar un disco persistente o un servidor propio.
+
+Pendiente / conocido:
+
+- `npm audit` sigue reportando vulnerabilidades heredadas de `@afipsdk/afip.js` (`soap` → `xml-crypto`, `xmldom`, `request`), cuya corrección exige subir a la v1.x del SDK (cambio mayor, a probar contra homologación de ARCA), y de `vite`/`vitest` (solo herramientas de desarrollo, no llegan a producción).
+- El costo de bcrypt se mantiene en 10: `bcryptjs` es JS puro y a costo 12 cada login bloquea ~1 s de CPU. Para subirlo, migrar a `bcrypt` nativo o `argon2`.
+- Rate limit y límite de login son en memoria (por proceso): con más de una instancia hace falta un store compartido.
 
 ---
 

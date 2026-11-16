@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole, requireSucursal, AuthRequest } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.get('/', authenticateToken, async (req, res) => {
     });
     return res.json(suppliers);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -39,7 +40,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (r
     });
     return res.status(201).json(supplier);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -64,7 +65,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async 
     });
     return res.json(supplier);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -210,7 +211,7 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
 
     return res.status(201).json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -244,7 +245,7 @@ router.get('/:id/account', authenticateToken, async (req, res) => {
 
     return res.json({ supplier, movements, purchases, summary });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -306,7 +307,7 @@ router.post('/:id/payments', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
 
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 

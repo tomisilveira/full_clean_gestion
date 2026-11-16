@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { authenticateToken, requireRole } from '../middleware/auth';
+import { serverError } from '../utils/errors';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get('/', authenticateToken, async (req, res) => {
     });
     return res.json(categories);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -28,7 +29,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'VENDEDOR']), async (r
     });
     return res.status(201).json(category);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -43,7 +44,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res) =
     });
     return res.json(category);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
@@ -53,7 +54,7 @@ router.delete('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res
     await prisma.category.delete({ where: { id } });
     return res.json({ message: 'Categoría eliminada con éxito.' });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return serverError(res, error);
   }
 });
 
