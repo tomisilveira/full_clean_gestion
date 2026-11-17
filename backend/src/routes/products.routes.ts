@@ -381,29 +381,34 @@ router.post('/:id/movement', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
     const product = await prisma.product.findUnique({ where: { id } });
     if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
-    const stockRow = await prisma.productStock.upsert({
-      where: { productId_sucursalId: { productId: id, sucursalId } },
-      update: {},
-      create: { productId: id, sucursalId, currentStock: 0, minStock: 5 },
-    });
-
     const qty = parseFloat(quantity);
-    const previousStock = stockRow.currentStock;
-    let newStock = previousStock;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'Tipo y cantidad válida son requeridos.' });
+    }
 
+    let delta: number;
     if (type === 'MANUAL_IN' || type === 'PURCHASE') {
-      newStock = previousStock + qty;
+      delta = qty;
     } else if (type === 'MANUAL_OUT' || type === 'SALE') {
-      newStock = previousStock - qty;
+      delta = -qty;
     } else {
       return res.status(400).json({ error: 'Tipo de movimiento no válido.' });
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      await tx.productStock.upsert({
+        where: { productId_sucursalId: { productId: id, sucursalId } },
+        update: {},
+        create: { productId: id, sucursalId, currentStock: 0, minStock: 5 },
+      });
+      // Ajuste atómico (ver nota en services/salesService.ts): el stock anterior y el nuevo
+      // se derivan del valor que devuelve la propia actualización, no de una lectura previa.
       const updatedStock = await tx.productStock.update({
         where: { productId_sucursalId: { productId: id, sucursalId } },
-        data: { currentStock: newStock },
+        data: { currentStock: { increment: delta } },
       });
+      const newStock = updatedStock.currentStock;
+      const previousStock = newStock - delta;
 
       const movement = await tx.stockMovement.create({
         data: {
@@ -445,33 +450,40 @@ router.post('/:id/transfer', authenticateToken, requireRole(['ADMIN']), async (r
     if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
     const result = await prisma.$transaction(async (tx) => {
-      const originStock = await tx.productStock.upsert({
-        where: { productId_sucursalId: { productId: id, sucursalId: from } },
+      const originKey = { productId_sucursalId: { productId: id, sucursalId: from } };
+      const destKey = { productId_sucursalId: { productId: id, sucursalId: to } };
+
+      await tx.productStock.upsert({
+        where: originKey,
         update: {},
         create: { productId: id, sucursalId: from, currentStock: 0, minStock: 5 },
       });
-
-      if (originStock.currentStock < qty) {
-        throw new ValidationError(`Stock insuficiente en la sucursal de origen (disponible: ${originStock.currentStock}).`);
-      }
-
-      const destStock = await tx.productStock.upsert({
-        where: { productId_sucursalId: { productId: id, sucursalId: to } },
+      await tx.productStock.upsert({
+        where: destKey,
         update: {},
         create: { productId: id, sucursalId: to, currentStock: 0, minStock: 5 },
       });
 
-      const newOriginStock = originStock.currentStock - qty;
-      const newDestStock = destStock.currentStock + qty;
+      // Descuento condicional y atómico en el origen: solo se aplica si todavía alcanza el
+      // stock. Antes se leía el stock, se comparaba y se guardaba en pasos separados, así
+      // que dos transferencias simultáneas podían sacar más de lo disponible.
+      const taken = await tx.productStock.updateMany({
+        where: { productId: id, sucursalId: from, currentStock: { gte: qty } },
+        data: { currentStock: { decrement: qty } },
+      });
+      if (taken.count === 0) {
+        const available = await tx.productStock.findUnique({ where: originKey });
+        throw new ValidationError(`Stock insuficiente en la sucursal de origen (disponible: ${available?.currentStock ?? 0}).`);
+      }
 
-      await tx.productStock.update({
-        where: { productId_sucursalId: { productId: id, sucursalId: from } },
-        data: { currentStock: newOriginStock },
+      const originStock = await tx.productStock.findUniqueOrThrow({ where: originKey });
+      const destStock = await tx.productStock.update({
+        where: destKey,
+        data: { currentStock: { increment: qty } },
       });
-      await tx.productStock.update({
-        where: { productId_sucursalId: { productId: id, sucursalId: to } },
-        data: { currentStock: newDestStock },
-      });
+
+      const newOriginStock = originStock.currentStock;
+      const newDestStock = destStock.currentStock;
 
       const movementOut = await tx.stockMovement.create({
         data: {
@@ -480,7 +492,7 @@ router.post('/:id/transfer', authenticateToken, requireRole(['ADMIN']), async (r
           sucursalDestinoId: to,
           movementType: 'TRANSFER_OUT',
           quantity: qty,
-          previousStock: originStock.currentStock,
+          previousStock: newOriginStock + qty,
           newStock: newOriginStock,
           reason: reason || `Transferencia a sucursal #${to}`,
           userId: req.user!.id,
@@ -494,7 +506,7 @@ router.post('/:id/transfer', authenticateToken, requireRole(['ADMIN']), async (r
           sucursalDestinoId: from,
           movementType: 'TRANSFER_IN',
           quantity: qty,
-          previousStock: destStock.currentStock,
+          previousStock: newDestStock - qty,
           newStock: newDestStock,
           reason: reason || `Transferencia desde sucursal #${from}`,
           userId: req.user!.id,

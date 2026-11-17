@@ -97,11 +97,12 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
           create: { productId: item.productId, sucursalId: purchase.sucursalId, currentStock: 0, minStock: 5 },
         });
 
-        const newStock = stockRow.currentStock - item.quantity;
-        await tx.productStock.update({
+        // Decremento atómico (ver nota en services/salesService.ts).
+        const reverted = await tx.productStock.update({
           where: { productId_sucursalId: { productId: item.productId, sucursalId: purchase.sucursalId } },
-          data: { currentStock: newStock },
+          data: { currentStock: { decrement: item.quantity } },
         });
+        const newStock = reverted.currentStock;
 
         await tx.stockMovement.create({
           data: {
@@ -109,7 +110,7 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
             sucursalId: purchase.sucursalId,
             movementType: 'MANUAL_OUT',
             quantity: item.quantity,
-            previousStock: stockRow.currentStock,
+            previousStock: newStock + item.quantity,
             newStock,
             reason: `Anulación de Compra #${purchase.id} (Fact/Remito: ${purchase.invoiceNumber || 'S/N'})`,
             userId: req.user!.id,
@@ -120,11 +121,11 @@ router.post('/:id/cancel', authenticateToken, requireRole(['ADMIN']), async (req
       // Revertir la deuda que había generado la compra contra el proveedor. Si ya se
       // había pagado (al contado o después), el saldo puede quedar en contra del
       // proveedor (nos debe el reintegro) — igual que anular una venta a cta. cte. ya cobrada.
-      const newBalance = purchase.supplier.balance - purchase.total;
-      await tx.supplier.update({
+      const supplierAfter = await tx.supplier.update({
         where: { id: purchase.supplierId },
-        data: { balance: newBalance },
+        data: { balance: { decrement: purchase.total } },
       });
+      const newBalance = supplierAfter.balance;
 
       await tx.supplierAccountMovement.create({
         data: {

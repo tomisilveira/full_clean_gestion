@@ -124,11 +124,13 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
             create: { productId: item.productId, sucursalId, currentStock: 0, minStock: 5 },
           });
 
-          const newStock = stockRow.currentStock + item.quantity;
-          await tx.productStock.update({
+          // Incremento atómico (ver nota en services/salesService.ts): no se pisa el stock
+          // si otra caja vende o recibe mercadería del mismo producto al mismo tiempo.
+          const updatedStock = await tx.productStock.update({
             where: { productId_sucursalId: { productId: item.productId, sucursalId } },
-            data: { currentStock: newStock },
+            data: { currentStock: { increment: item.quantity } },
           });
+          const newStock = updatedStock.currentStock;
 
           await tx.product.update({
             where: { id: item.productId },
@@ -144,7 +146,7 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
               sucursalId,
               movementType: 'PURCHASE',
               quantity: item.quantity,
-              previousStock: stockRow.currentStock,
+              previousStock: newStock - item.quantity,
               newStock,
               reason: `Ingreso por compra #${purchase.id} (Fact/Remito: ${invoiceNumber || 'S/N'})`,
               userId: req.user!.id,
@@ -154,11 +156,11 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
       }
 
       // 3. Update Supplier Account Balance
-      const newBalance = supplier.balance + total;
-      await tx.supplier.update({
+      const supplierAfterDebt = await tx.supplier.update({
         where: { id: supplierId },
-        data: { balance: newBalance },
+        data: { balance: { increment: total } },
       });
+      const newBalance = supplierAfterDebt.balance;
 
       await tx.supplierAccountMovement.create({
         data: {
@@ -177,11 +179,11 @@ router.post('/:id/purchases', authenticateToken, requireRole(['ADMIN', 'VENDEDOR
         });
 
         if (activeSession) {
-          const afterPaymentBalance = newBalance - total;
-          await tx.supplier.update({
+          const supplierAfterPayment = await tx.supplier.update({
             where: { id: supplierId },
-            data: { balance: afterPaymentBalance },
+            data: { balance: { decrement: total } },
           });
+          const afterPaymentBalance = supplierAfterPayment.balance;
 
           await tx.supplierAccountMovement.create({
             data: {
@@ -267,11 +269,11 @@ router.post('/:id/payments', authenticateToken, requireRole(['ADMIN', 'VENDEDOR'
     if (!supplier) return res.status(404).json({ error: 'Proveedor no encontrado.' });
 
     const result = await prisma.$transaction(async (tx) => {
-      const newBalance = supplier.balance - paymentAmount;
       const updatedSupplier = await tx.supplier.update({
         where: { id: supplierId },
-        data: { balance: newBalance },
+        data: { balance: { decrement: paymentAmount } },
       });
+      const newBalance = updatedSupplier.balance;
 
       const movement = await tx.supplierAccountMovement.create({
         data: {

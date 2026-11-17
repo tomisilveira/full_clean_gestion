@@ -290,3 +290,88 @@ describe('administración, privacidad y exportación', () => {
     expect(res.text).not.toMatch(/prisma|invocation|findUnique|postgres/i);
   });
 });
+
+describe('operaciones simultáneas sobre stock y saldos', () => {
+  let adminToken: string;
+
+  beforeAll(async () => {
+    const token = await login('admin');
+    // el ADMIN ve todas las sucursales: para operar stock/compras debe elegir una
+    const sel = await call('/auth/select-sucursal', { method: 'POST', token, body: { sucursalId: sucA } });
+    expect(sel.status).toBe(200);
+    adminToken = sel.json.token;
+  });
+
+  it('ajustes manuales simultáneos de stock no pisan cambios y dejan un historial coherente', async () => {
+    const before = await stockOf(sucA);
+    const move = (type: string, quantity: number) =>
+      call(`/products/${productId}/movement`, { method: 'POST', token: adminToken, body: { type, quantity, reason: 'test concurrencia' } });
+
+    const results = await Promise.all([
+      ...Array.from({ length: 8 }, () => move('MANUAL_IN', 2)),
+      ...Array.from({ length: 4 }, () => move('MANUAL_OUT', 1)),
+    ]);
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(await stockOf(sucA)).toBe(before + 16 - 4);
+
+    // cada movimiento tiene un "stock anterior" y uno "nuevo" que encajan con su cantidad
+    const movements = await prisma.stockMovement.findMany({ where: { productId, sucursalId: sucA, reason: 'test concurrencia' } });
+    expect(movements).toHaveLength(12);
+    for (const m of movements) {
+      const signed = m.movementType === 'MANUAL_IN' ? m.quantity : -m.quantity;
+      expect(m.newStock - m.previousStock).toBe(signed);
+    }
+    // y el conjunto de movimientos suma exactamente el cambio neto de stock
+    expect(movements.reduce((acc, m) => acc + (m.newStock - m.previousStock), 0)).toBe(12);
+  });
+
+  it('transferencias simultáneas no pueden sacar más stock del disponible', async () => {
+    await prisma.productStock.update({ where: { productId_sucursalId: { productId, sucursalId: sucA } }, data: { currentStock: 5 } });
+    const destBefore = await stockOf(sucB);
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        call(`/products/${productId}/transfer`, { method: 'POST', token: adminToken, body: { fromSucursalId: sucA, toSucursalId: sucB, quantity: 2 } })
+      )
+    );
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses).toEqual([201, 201, 400, 400]); // con 5 de stock entran 2 transferencias de 2
+    expect(await stockOf(sucA)).toBe(1);
+    expect(await stockOf(sucB)).toBe(destBefore + 4); // el total se conserva
+  });
+
+  it('compras y pagos simultáneos a un proveedor suman bien stock y deuda', async () => {
+    const supplier = await call('/suppliers', { method: 'POST', token: adminToken, body: { name: 'Proveedor Test' } });
+    expect(supplier.status).toBe(201);
+    const sid = supplier.json.id;
+    const stockBefore = await stockOf(sucA);
+
+    const purchases = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        call(`/suppliers/${sid}/purchases`, { method: 'POST', token: adminToken, body: { items: [{ productId, quantity: 1, costPrice: 100 }] } })
+      )
+    );
+    expect(purchases.every((r) => r.status === 201)).toBe(true);
+    expect(await stockOf(sucA)).toBe(stockBefore + 5);
+    expect((await prisma.supplier.findUnique({ where: { id: sid } }))!.balance).toBe(500);
+
+    const payments = await Promise.all(
+      Array.from({ length: 5 }, () => call(`/suppliers/${sid}/payments`, { method: 'POST', token: adminToken, body: { amount: 50 } }))
+    );
+    expect(payments.every((r) => r.status === 200)).toBe(true);
+    expect((await prisma.supplier.findUnique({ where: { id: sid } }))!.balance).toBe(250);
+
+    // el último saldo informado en la cuenta corriente coincide con el real
+    const last = await prisma.supplierAccountMovement.findMany({ where: { supplierId: sid }, orderBy: { id: 'asc' } });
+    expect(Math.min(...last.map((m) => m.balanceAfter))).toBeGreaterThanOrEqual(0);
+  });
+
+  it('cobros simultáneos a un cliente restan bien del saldo', async () => {
+    const customer = await prisma.customer.create({ data: { name: 'Cliente Deudor', balance: 1000 } });
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => call(`/customers/${customer.id}/payments`, { method: 'POST', token: adminToken, body: { amount: 100 } }))
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect((await prisma.customer.findUnique({ where: { id: customer.id } }))!.balance).toBe(500);
+  });
+});
