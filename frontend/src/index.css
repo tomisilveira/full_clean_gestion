@@ -36,6 +36,16 @@
   }
 }
 
+/* Modales (<dialog> + showModal): evita que la rueda/touch sobre el fondo o dentro del modal
+   scrollee la página de atrás. Mejora progresiva: Chrome/Edge 144+ y Firefox 150+. */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
 /* Custom sleek scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import { useToastStore } from '../store/useToastStore';
 
@@ -8,11 +8,37 @@ import { useToastStore } from '../store/useToastStore';
 // cada mutation.mutate() son lo que soluciona eso.
 export const Toaster: React.FC = () => {
   const { toasts, removeToast } = useToastStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastToastId = toasts[toasts.length - 1]?.id;
+
+  // Los <dialog> abiertos con showModal() viven en la "top layer" del navegador, que queda por
+  // encima de CUALQUIER z-index: un aviso común (z-[100]) quedaba detrás del fondo oscuro y
+  // borroso del modal, justo cuando más importa verlo (ej. falla un guardado dentro de un modal).
+  // Mostrando el contenedor como popover manual también entra a la top layer, y se lo vuelve a
+  // abrir con cada aviso nuevo para que quede por encima del modal. En navegadores sin soporte de
+  // popover el atributo se ignora y sigue funcionando el z-index de siempre.
+  useLayoutEffect(() => {
+    const el = containerRef.current as (HTMLDivElement & { showPopover?: () => void; hidePopover?: () => void }) | null;
+    if (!el || typeof el.showPopover !== 'function') return;
+    try {
+      if (el.matches(':popover-open')) el.hidePopover?.();
+      el.showPopover();
+    } catch {
+      // si el navegador no puede abrirlo, queda visible igual por z-index
+    }
+  }, [lastToastId]);
 
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm">
+    <div
+      ref={containerRef}
+      {...({ popover: 'manual' } as object)}
+      role="region"
+      aria-label="Avisos"
+      aria-live="polite"
+      className="fixed top-4 right-4 left-auto bottom-auto z-[100] m-0 p-0 border-0 bg-transparent overflow-visible flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm"
+    >
       {toasts.map((toast) => {
         const styles =
           toast.type === 'error'
